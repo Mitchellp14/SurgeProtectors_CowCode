@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Cow — Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        /* --- FLUTTER-STYLE / MATERIAL DESIGN CSS --- */
+        
+        :root {
+            --primary: #348C31;       
+            --background-color: #F0F2F5;      /* Light Grey Background */
+            --card-bg: #FFFFFF;       /* White Card */
+            --text-main: #282828;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-image: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), url('644895289_dd3eef1f90_o_upscayl_3x_upscayl-standard-4x.png');
+            background-size: 100% auto;
+            background-color: var(--background-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            padding-bottom: 50px;
+        }
+
+        /* Top App Bar */
+        .app-bar {
+            background-color: var(--primary);
+            color: white;
+            padding: 15px 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .app-bar h1 { margin: 0; font-size: 1.25rem; font-weight: 500; }
+
+        /* Layout Container */
+        .container {
+            max-width: 1000px;
+            margin: 60px auto 20px auto;
+            padding: 0 15px;
+        }
+
+        /* Card Component (Flutter Card Style) */
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px; /* Rounded corners */
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08); /* Soft shadow */
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        /* Form Controls Styling */
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            align-items: end;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        select, input[type="date"], button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+            background: #fff;
+            box-sizing: border-box; /* Ensures padding doesn't widen element */
+        }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover { background-color: #194218; }
+
+        /* Graph Containers */
+        .graph-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+
+        /* Grid for 4 graphs */
+        #multiGraphGrid {
+            display: none; /* Hidden by default */
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        .small-graph { height: 200px; }
+
+        /* Data Table Styling */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            background-color: #f8f9fa;
+            color: #555;
+            font-weight: 600;
+        }
+
+        tr:hover { background-color: #f1f1f1; }
+
+                /* --- ANIMATIONS --- */
+
+        /* 1. Smooth Slide for the Dropdown */
+        /* We animate max-height to make it shrink/grow smoothly */
+        .slide-transition {
+            max-height: 100px; /* Open state */
+            opacity: 1;
+            overflow: hidden; /* Hides content when shrinking */
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .slide-hidden {
+            max-height: 0;   /* Closed state (shrinks to nothing) */
+            opacity: 0;
+            margin: 0;       /* Removes spacing so button slides over */
+            padding: 0;
+        }
+
+        /* 2. Fade Effect for Graphs */
+        .graph-fade {
+            opacity: 0;
+            transform: translateY(10px); /* Moves down slightly */
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+
+        .graph-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* 3. Button Hover Animation (Bounce) */
+        #applyFilter {
+            transition: transform 0.15s, background-color 0.15s;
+        }
+        #applyFilter:hover {
+            transform: scale(1.025); /* Grows 5% larger */
+        }
+        #applyFilter:active {
+            transform: scale(0.975); /* Shrinks when clicked */
+        }
+
+                /* --- TOOLTIP STYLES --- */
+
+        /* 1. Container: Holds the icon and the hidden text together */
+        .tooltip-container {
+            position: relative; /* distinct anchor point for the popup */
+            display: inline-block;
+            margin-left: 6px;
+            cursor: help; /* Changes mouse cursor to a question mark */
+        }
+
+        /* 2. The 'i' Icon: A small grey circle */
+        .info-icon {
+            background: #bbb;
+            color: white;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%; /* Makes it a perfect circle */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            font-family: serif; /* Gives it that classic 'i' look */
+            transition: background 0.2s;
+        }
+
+        /* Change color when hovered so user knows it's active */
+        .tooltip-container:hover .info-icon {
+            background: var(--primary); /* Turns purple on hover */
+        }
+
+        /* 3. The Popup Text: Hidden by default */
+        .tooltip-text {
+            visibility: hidden; /* Invisible */
+            opacity: 0;         /* Transparent */
+            width: 200px;       /* Width of the popup box */
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 8px 10px;
+            
+            /* Positioning: Floats above the icon */
+            position: absolute;
+            z-index: 10;
+            bottom: 135%;  /* Move it up above the icon */
+            left: 50%;     /* Center align... */
+            margin-left: -100px; /* ...compensate for width to truly center */
+            
+            /* Smooth fade-in animation */
+            transition: opacity 0.3s;
+            font-size: 0.8rem;
+            font-weight: normal;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+        }
+
+        /* 4. The Trigger: Show text when container is hovered */
+        .tooltip-container:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        /* Optional: Add a tiny arrow pointing down */
+        .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%; /* At the bottom of the tooltip */
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="app-bar">
+        <h1>Project Cow — Live Monitor</h1>
+    </div>
+
+    <div class="container">
+        
+        <div class="card">
+            <div class="controls-grid">
+                
+                <div>
+                    <label>Select Cow (RFID)
+                        <div class="tooltip-container">
+                            <div class="info-icon">i</div>
+                            <span class="tooltip-text">Chooses the specific cow based on the RFID tag number.</span>
+                        </div>
+                    </label>
+                    <select id="cowSelect">
+                        <option value="">Loading cows...</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Filter Date
+                        <div class="tooltip-container">
+                            <div class="info-icon">i</div>
+                            <span class="tooltip-text">Filters out a specified day.</span>
+                        </div>
+                    </label>
+                    <input type="date" id="dateFilter">
+                </div>
+
+                <div>
+                    <label>View Mode
+                        <div class="tooltip-container">
+                            <div class="info-icon">i</div>
+                            <span class="tooltip-text">Switch views between a single graph or a view of all 4 metrics.</span>
+                        </div>
+                    </label>
+                    <select id="viewMode">
+                        <option value="single">Single Focused Graph</option>
+                        <option value="multi">Dashboard (All 4)</option>
+                    </select>
+                </div>
+
+                <div id="metricSelectContainer" class="slide-transition">
+                    <label>Graph Metric</label>
+                    <select id="graphField">
+                        <option value="temperature">Temperature</option>
+                        <option value="humidity">Humidity</option>
+                        <option value="methane">Methane</option>
+                        <option value="co2">CO₂</option>
+                    </select>
+                </div>
+
+                <div>
+                    <button id="applyFilter">Update View</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 style="margin-top:0;">Analytics</h2>
+            
+            <div id="singleGraphContainer" class="graph-container">
+                <canvas id="mainChart"></canvas>
+            </div>
+
+            <div id="multiGraphGrid">
+                <div class="small-graph"><canvas id="chartTemp"></canvas></div>
+                <div class="small-graph"><canvas id="chartHum"></canvas></div>
+                <div class="small-graph"><canvas id="chartMeth"></canvas></div>
+                <div class="small-graph"><canvas id="chartCo2"></canvas></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 style="margin-top:0;">Detailed Logs</h2>
+            <div style="overflow-x: auto;"> <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Temp (°C)</th>
+                            <th>Humidity (%)</th>
+                            <th>Methane</th>
+                            <th>CO₂</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        <tr><td colspan="5">No data loaded.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
