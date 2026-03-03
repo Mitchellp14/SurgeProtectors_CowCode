@@ -6,14 +6,13 @@
 ///////////////////////CODE FOR SENSOR 1///////////////////
 
 // --------- WiFi settings ----------
-const char* WIFI_SSID     = "kaywalks";
-const char* WIFI_PASS = "Kwalker9789";
+const char* WIFI_SSID     = "";
+const char* WIFI_PASS = "";
 
 // --------- ThingSpeak settings ----------
-unsigned long CHANNEL_ID = 3269120;   // your channel number
-const char*  WRITE_KEY = "U5K6GT5VBKIDUOV6";
-//unsigned long CHANNEL_ID = 3272725;   // your channel number
-//const char*  WRITE_KEY = "JFCN6YF43FUDK1AK";
+unsigned long CHANNEL_ID = 3;   // your channel number
+const char*  WRITE_KEY = "U";
+
 
 WiFiClient client;
 Adafruit_INA219 ina219;
@@ -79,3 +78,4 @@ void loop() {
   ThingSpeak.writeFields(CHANNEL_ID, WRITE_KEY);
   delay(20000);
 }
+
