@@ -82,8 +82,8 @@ bool Uploader::uploadGasSnapshot(const String &rfidTag, const GasReading &gas, u
   if (!app.ready()) return false;
   if (epoch == 0) return false;
 
-  String uid = app.getUid().c_str();
-  String databasePath = "/UsersData/" + "IntegrationTest2"; //Using in Integration test 2, so we're bypassing the uid bit.
+  //String uid = app.getUid().c_str();
+  String databasePath = "/UsersData/IntegrationTest2"; //Using in Integration test 2, so we're bypassing the uid bit.
   String parentPath = databasePath + "/" + String(epoch);
 
   Serial.print("Uploading to ");
