@@ -1,0 +1,192 @@
+// CowSystem.ino
+// Main entry point for the firmware.
+// Wires together the modules (RFID, gas sensors, session manager, uploader)
+// and runs them on a simple millis()-based schedule (no FreeRTOS).
+
+#include <Arduino.h>
+#include "Scheduler.h"
+#include "types.h"
+#include "RfidTask.h"
+#include "gasTasks.h"
+#include "manager.h"
+#include "uploader.h"
+
+// --- Pin assignments ---
+static const int RFID_RX_PIN = 14;     // RFID: single-wire RX
+static const int RFID_TX_PIN = -1;     // not used
+static const uint32_t RFID_BAUD = 9600;
+
+static const int INIR_RX_PIN = 17;     // INIR2 methane UART RX
+static const int INIR_TX_PIN = 16;     // INIR2 methane UART TX
+
+// SCD30 I2C pins
+static const int I2C_SDA = 6;
+static const int I2C_SCL = 7;
+
+// --- Modules ---
+RfidTask rfid;
+GasTasks gas;
+SessionManager manager;
+Uploader uploader;
+
+// --- Scheduling ---
+// intervalMs = 0 means run every loop iteration.
+Task tRFID   {0,    0};    // RFID should be responsive
+Task tGasF   {0,    0};    // INIR2 UART parsing should run constantly
+Task tGasS   {1000, 0};    // SCD30 poll rate (~1 Hz)
+Task tMgr    {50,   0};    // session timing/state
+Task tUpTick {0,    0};    // keep Firebase app loop alive
+Task tUpload {20,   0};    // check upload trigger frequently
+Task tSample10s {10000, 0};   // sample every 10 seconds
+Task tMinuteChk {1000,  0};   // check minute rollover every 1 second
+
+//Gas Accumulator for averaging every minute
+struct GasAccum {
+  uint32_t count = 0;
+  double sumTemp = 0;
+  double sumHum  = 0;
+  double sumCO2  = 0;
+  double sumCH4  = 0;
+  uint32_t ch4Count = 0;     // only count valid CH4 samples
+
+  // track which minute we’re accumulating
+  uint32_t currentMinute = 0;
+  bool minuteInitialized = false;
+
+  void resetForMinute(uint32_t minute) {
+    count = 0;
+    sumTemp = sumHum = sumCO2 = sumCH4 = 0;
+    ch4Count = 0;
+    currentMinute = minute;
+    minuteInitialized = true;
+  }
+
+  void addSample(const GasReading &g) {
+    // only average the pieces that are valid-ish
+    if (g.scd_valid) {
+      sumTemp += g.tempC;
+      sumHum  += g.humidity;
+      sumCO2  += g.co2ppm;
+      count++;
+    }
+    if (g.ch4_valid) {
+      sumCH4 += g.methane_ppm;
+      ch4Count++;
+    }
+  }
+
+  bool hasAny() const {
+    return count > 0 || ch4Count > 0;
+  }
+};
+static GasAccum gasAccum;
+
+static bool uploadMinuteAverage(uint32_t minuteEpoch, const GasAccum &acc) {
+  GasReading avg;
+  avg.scd_valid = (acc.count > 0);
+  if (avg.scd_valid) {
+    avg.tempC    = (float)(acc.sumTemp / acc.count);
+    avg.humidity = (float)(acc.sumHum  / acc.count);
+    avg.co2ppm   = (float)(acc.sumCO2  / acc.count);
+  }
+
+  avg.ch4_valid = (acc.ch4Count > 0);
+  avg.methane_ppm = avg.ch4_valid ? (int)lround(acc.sumCH4 / acc.ch4Count) : -1;
+
+  // Keep these for debugging
+  avg.inir_faults = 0;
+  avg.inir_temp_c = NAN;
+
+  // Use a fixed tag/category so averages don’t mix with RFID events
+  // Example: RFID tag name "MINUTE_AVG"
+  return uploader.uploadGasSnapshot("MINUTE_AVG", avg, minuteEpoch);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+
+  rfid.begin(RFID_RX_PIN, RFID_TX_PIN, RFID_BAUD);
+  gas.begin(I2C_SDA, I2C_SCL, INIR_RX_PIN, INIR_TX_PIN);
+
+  manager.begin(20000, 5000); // 20s session, upload every 5s
+  uploader.begin();
+
+  Serial.println("CowSystem ready.");
+}
+
+void loop() {
+  uint32_t now = millis();
+
+  // --- Regular task ticks ---
+  if (due(tRFID, now))   rfid.tick();
+  if (due(tGasF, now))   gas.tickFast();
+  if (due(tGasS, now))   gas.tickSlow(now);
+  if (due(tMgr, now))    manager.tick(now);
+  if (due(tUpTick, now)) uploader.tick();
+
+  // --- RFID event -> start session ---
+  String tag;
+  if (rfid.consumeTag(tag)) {
+    manager.startSession(tag, now);
+  }
+
+  // --- RFID session uploads (unchanged behavior) ---
+  if (due(tUpload, now)) {
+    if (manager.shouldUploadNow(now) && uploader.ready()) {
+      GasReading gr = gas.getLatest();
+      uint32_t epoch = uploader.epochNow();
+      (void)uploader.uploadGasSnapshot(manager.currentTag(), gr, epoch);
+    }
+  }
+
+  // =========================================================
+  // Integration test logging plan:
+  //   - sample a gas reading every 10 seconds
+  //   - once per minute, upload the minute-average
+  // =========================================================
+
+  // --- 10s sampling into accumulator ---
+  if (due(tSample10s, now)) {
+    uint32_t epoch = uploader.epochNow();     // returns 0 if NTP isn't ready yet
+    if (epoch != 0) {
+      uint32_t minute = epoch / 60;
+
+      // Initialize or roll accumulator if we somehow jumped minutes
+      if (!gasAccum.minuteInitialized) {
+        gasAccum.resetForMinute(minute);
+      } else if (minute != gasAccum.currentMinute) {
+        // finalize previous minute before switching
+        if (uploader.ready() && gasAccum.hasAny()) {
+          (void)uploadMinuteAverage(gasAccum.currentMinute * 60, gasAccum);
+        }
+        gasAccum.resetForMinute(minute);
+      }
+
+      GasReading g = gas.getLatest();
+      gasAccum.addSample(g);
+    }
+  }
+
+  // --- minute rollover check + upload the previous minute average ---
+  if (due(tMinuteChk, now)) {
+    uint32_t epoch = uploader.epochNow();
+    if (epoch == 0) return;  // no time sync yet, nothing to do
+
+    uint32_t minute = epoch / 60;
+
+    if (!gasAccum.minuteInitialized) {
+      gasAccum.resetForMinute(minute);
+      return;
+    }
+
+    // minute changed -> upload the previous minute's average
+    if (minute != gasAccum.currentMinute) {
+      if (uploader.ready() && gasAccum.hasAny()) {
+        // store at the start-of-minute timestamp (minute*60)
+        (void)uploadMinuteAverage(gasAccum.currentMinute * 60, gasAccum);
+      }
+      gasAccum.resetForMinute(minute);
+    }
+  }
+}
