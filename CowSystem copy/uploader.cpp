@@ -15,7 +15,7 @@
 #include "time.h"
 
 // --- WiFi & Firebase credentials ---
-#define WIFI_SSID "CapstoneWifi2"
+#define WIFI_SSID "CapstoneWifi2" //CHANGE IF NEEDED!!!
 #define WIFI_PASSWORD "RuleNumber9"
 
 #define Web_API_KEY "AIzaSyCgKeJBId5Ni2kR6hqma8Di08GPwoKtTBk"
@@ -78,12 +78,12 @@ uint32_t Uploader::epochNow() {
   return (uint32_t)now;
 }
 
-bool Uploader::uploadGasSnapshot(const String &rfidTag, const GasReading &gas, uint32_t epoch) {
+bool Uploader::uploadGasSnapshot(const String &rfidTag, const GasReading &gas, uint32_t epoch) { //NOTE: If there is a runtime error, get rid of String RFIDtag datatype
   if (!app.ready()) return false;
   if (epoch == 0) return false;
 
   String uid = app.getUid().c_str();
-  String databasePath = "/UsersData/" + uid + "/RFID_" + rfidTag;
+  String databasePath = "/UsersData/" + "IntegrationTest2"; //Using in Integration test 2, so we're bypassing the uid bit.
   String parentPath = databasePath + "/" + String(epoch);
 
   Serial.print("Uploading to ");

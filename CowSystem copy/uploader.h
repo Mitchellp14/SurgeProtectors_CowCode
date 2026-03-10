@@ -22,7 +22,7 @@ public:
   uint32_t epochNow();
 
   // Push one gas snapshot under the given RFID tag + timestamp
-  bool uploadGasSnapshot(const String &rfidTag, const GasReading &gas, uint32_t epoch);
+  bool uploadGasSnapshot(const String &rfidTag, const GasReading &gas, uint32_t epoch); //NOTE: If there is a runtime error, get rid of String RFIDtag datatype
 
 private:
   void initWiFi();
