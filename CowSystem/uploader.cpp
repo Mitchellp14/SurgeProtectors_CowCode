@@ -15,13 +15,13 @@
 #include "time.h"
 
 // --- WiFi & Firebase credentials ---
-#define WIFI_SSID "CapstoneWifi2" //CHANGE IF NEEDED!!!
-#define WIFI_PASSWORD "RuleNumber9"
+#define WIFI_SSID "You Betta WIFI" //CHANGE IF NEEDED!!!
+#define WIFI_PASSWORD "Titanic1Doll85"
 
 #define Web_API_KEY "AIzaSyCgKeJBId5Ni2kR6hqma8Di08GPwoKtTBk"
 #define DATABASE_URL "https://project-cow-database-default-rtdb.firebaseio.com"
-#define USER_EMAIL "thgh9905@colorado.edu"
-#define USER_PASS "1%AW&H9Wr!g!gvQ0m8gX"
+#define USER_EMAIL "Avpe9860@colorado.edu"
+#define USER_PASS "Little11Forest12!" //Please do not copy i am trusting you all so much :D
 
 static const char* ntpServer = "pool.ntp.org";
 
