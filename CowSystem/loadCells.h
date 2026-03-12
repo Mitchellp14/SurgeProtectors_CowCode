@@ -9,7 +9,7 @@
 class LoadCell_Tasks {
 public:
   //enables and defines spi communication (may need to input spi pointer/s instead)
-  void begin_ADC(int arr_cs[], int Dout1, int Din1, int Dout2, int Din2); 
+  bool begin_ADC(int arr_cs[], int arraysize, int Dout1, int Din1, int Dout2, int Din2, int Sclk); 
 
   //configures adc1 grabs measurment reconfigures grabs second measurment 
   //configures adc2 grabs measurment reconfigures grabs second measurment
