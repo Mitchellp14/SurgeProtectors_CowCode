@@ -38,8 +38,6 @@ bool LoadCell_Tasks::begin_ADC(int arr_cs[], int arraysize, int Dout1, int Din1,
 
   if(ad7190_1->begin() && ad7190_2->begin && ad7190_1->begin() && ad7190_2->begin){
     Serial.println(F("AD7190 begin: OK"));
-    Serial.print("Device name: ");
-    Serial.println(ad7190->getDeviceName());
     return true;
   }
   else{
@@ -47,5 +45,6 @@ bool LoadCell_Tasks::begin_ADC(int arr_cs[], int arraysize, int Dout1, int Din1,
   }
   return false;
 }
+
 
 
