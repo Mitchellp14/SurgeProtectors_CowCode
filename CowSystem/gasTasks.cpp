@@ -17,6 +17,13 @@ static HardwareSerial INIRSerial(1);
 static const uint32_t INIR_BAUD = 38400;
 static const uint32_t INIR_WARMUP_MS = 45000UL;
 
+static void sendInirCmd(const char* cmd) {
+  INIRSerial.print(cmd);
+  Serial.print("Sent to INIR: ");
+  Serial.println(cmd);
+  delay(250);
+}
+
 void GasTasks::begin(int sdaPin, int sclPin, int inirRx, int inirTx) {
   sda = sdaPin;
   scl = sclPin;
@@ -27,17 +34,21 @@ void GasTasks::begin(int sdaPin, int sclPin, int inirRx, int inirTx) {
 
   // SCD30 init (I2C)
   Wire.begin(sda, scl);
-  if (!airSensor.begin()) {
+  if (!airSensor.begin(Wire)) {
     Serial.println("SCD30 not detected. Check wiring.");
     latest.scd_valid = false;
   } else {
     latest.scd_valid = true;
   }
 
-  // INIR2 init (UART, 8N2)
-  INIRSerial.begin(INIR_BAUD, SERIAL_8N2, inirRX, inirTX);
+  // INIR2 init (UART, 8N1)
+  INIRSerial.begin(INIR_BAUD, SERIAL_8N1, inirRX, inirTX);
+  delay(200);
+  sendInirCmd("[C]");
+  delay(500);
+  sendInirCmd("[A]");
 
-  Serial.println("GasTasks initialized (SCD30 + INIR2 UART).");
+  Serial.println("GasTasks initialized (SCD30 + INIR1 UART).");
 }
 
 void GasTasks::tickFast() {
@@ -52,11 +63,11 @@ void GasTasks::tickSlow(uint32_t nowMs) {
   if ((uint32_t)(nowMs - lastSCDMs) < 1000) return;
   lastSCDMs = nowMs;
 
-  if (latest.scd_valid) {
-    latest.tempC = airSensor.getTemperature();
-    latest.co2ppm = airSensor.getCO2();
-    latest.humidity = airSensor.getHumidity();
-  }
+  if (latest.scd_valid && airSensor.dataAvailable()) {
+  latest.tempC = airSensor.getTemperature();
+  latest.co2ppm = airSensor.getCO2();
+  latest.humidity = airSensor.getHumidity();
+}
 
   latest.last_ms = nowMs;
 }
@@ -106,81 +117,44 @@ bool GasTasks::parse_hex_token(const char* tok, uint32_t &out) {
 // Frame parser for INIR2 NORMAL mode.
 // Consumes the UART stream until it sees a full [ ... ] frame, then updates `latest`.
 bool GasTasks::parseInirFrame() {
-  char c = (char)INIRSerial.read();
+  String line = INIRSerial.readStringUntil('\n');
+  line.trim();
 
-  // Wait for start of frame
-  if (!inFrame) {
-    if (c == '[') {
-      inFrame = true;
-      idx = 0;
-    }
+  if (!(line.equalsIgnoreCase("0000005b") || line.equalsIgnoreCase("5b"))) {
     return false;
   }
 
-  // End of frame: parse and validate
-  if (c == ']') {
-    buf[idx] = '\0';
-    inFrame = false;
+  String gasStr    = INIRSerial.readStringUntil('\n'); gasStr.trim();
+  String faultStr  = INIRSerial.readStringUntil('\n'); faultStr.trim();
+  String tempStr   = INIRSerial.readStringUntil('\n'); tempStr.trim();
+  String crcStr    = INIRSerial.readStringUntil('\n'); crcStr.trim();
+  String invCrcStr = INIRSerial.readStringUntil('\n'); invCrcStr.trim();
+  String endStr    = INIRSerial.readStringUntil('\n'); endStr.trim();
 
-    uint32_t conc = 0, faults = 0, temp = 0, crc = 0, inv = 0;
+  uint32_t conc   = strtoul(gasStr.c_str(), nullptr, 16);
+  uint32_t faults = strtoul(faultStr.c_str(), nullptr, 16);
+  uint32_t temp   = strtoul(tempStr.c_str(), nullptr, 16);
+  uint32_t crc    = strtoul(crcStr.c_str(), nullptr, 16);
+  uint32_t inv    = strtoul(invCrcStr.c_str(), nullptr, 16);
 
-    char tmp[160];
-    strncpy(tmp, buf, sizeof(tmp));
-    tmp[sizeof(tmp) - 1] = '\0';
+  uint32_t calc = inir_calc_crc_normal(conc, faults, temp);
+  bool crc_ok = (calc == crc) && ((~crc) == inv);
+  bool warm_ok = (millis() - bootMs) >= INIR_WARMUP_MS;
 
-    const char* delims = " \r\n\t";
-    char* tok = strtok(tmp, delims);
-    int got = 0;
+  latest.ch4_valid = crc_ok && warm_ok;
+  latest.methane_ppm = latest.ch4_valid ? (int)conc : -1;
+  latest.inir_faults = faults;
+  latest.inir_temp_c = k10_to_c(temp);
+  latest.last_ms = millis();
 
-    // Pull out the first 5 hex tokens (0x........)
-    while (tok && got < 5) {
-      uint32_t v;
-      if (parse_hex_token(tok, v)) {
-        if (got == 0) conc = v;
-        if (got == 1) faults = v;
-        if (got == 2) temp = v;
-        if (got == 3) crc = v;
-        if (got == 4) inv = v;
-        got++;
-      }
-      tok = strtok(nullptr, delims);
-    }
+  Serial.print("INIR: CH4=");
+  Serial.print(conc);
+  Serial.print(" ppm faults=0x");
+  Serial.print(faults, HEX);
+  Serial.print(" Tinir=");
+  Serial.print(latest.inir_temp_c, 2);
+  Serial.print("C valid=");
+  Serial.println(latest.ch4_valid ? "yes" : "no");
 
-    if (got < 5) return false;
-
-    // CRC + warmup gate
-    uint32_t calc = inir_calc_crc_normal(conc, faults, temp);
-    bool crc_ok = (calc == crc) && ((~crc) == inv);
-    bool warm_ok = (millis() - bootMs) >= INIR_WARMUP_MS;
-
-    latest.ch4_valid = crc_ok && warm_ok;
-    latest.methane_ppm = latest.ch4_valid ? (int)conc : -1;
-    //latest.methane_ppm = ; //
-    latest.inir_faults = faults;
-    latest.inir_temp_c = k10_to_c(temp);
-    latest.last_ms = millis();
-
-    // Debug print (comment out if noisy)
-    Serial.print("INIR: CH4=");
-    Serial.print(conc);
-    Serial.print(" ppm faults=0x");
-    Serial.print(faults, HEX);
-    Serial.print(" Tinir=");
-    Serial.print(latest.inir_temp_c, 2);
-    Serial.print("C valid=");
-    Serial.println(latest.ch4_valid ? "yes" : "no");
-
-    return true;
-  }
-
-  // Store frame content (everything between '[' and ']')
-  if (idx < sizeof(buf) - 1) {
-    buf[idx++] = c;
-  } else {
-    // Overflow: drop the frame and resync
-    inFrame = false;
-    idx = 0;
-  }
-
-  return false;
+  return true;
 }
