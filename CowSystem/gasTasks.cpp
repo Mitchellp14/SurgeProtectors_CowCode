@@ -12,7 +12,7 @@
 static SCD30 airSensor;
 
 // INIR2 UART on Serial2
-static HardwareSerial INIRSerial(2);
+static HardwareSerial INIRSerial(1);
 
 static const uint32_t INIR_BAUD = 38400;
 static const uint32_t INIR_WARMUP_MS = 45000UL;
@@ -155,6 +155,7 @@ bool GasTasks::parseInirFrame() {
 
     latest.ch4_valid = crc_ok && warm_ok;
     latest.methane_ppm = latest.ch4_valid ? (int)conc : -1;
+    //latest.methane_ppm = ; //
     latest.inir_faults = faults;
     latest.inir_temp_c = k10_to_c(temp);
     latest.last_ms = millis();

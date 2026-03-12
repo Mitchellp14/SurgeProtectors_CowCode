@@ -14,7 +14,7 @@ struct GasReading {
 
   // INIR2 methane (UART)
   bool ch4_valid = false;      
-  int methane_ppm = -1;
+  int methane_ppm = -1; //maybe supposed to be uint32_t?
   uint32_t inir_faults = 0;
   float inir_temp_c = NAN;
 
