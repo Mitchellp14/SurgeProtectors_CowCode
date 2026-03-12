@@ -14,6 +14,8 @@ AD7190* ad7190_4 = NULL;
 
 SPIClass* SPI_1 = NULL;
 SPIClass* SPI_2 = NULL;
+SPIClass* SPI_3 = NULL;
+SPIClass* SPI_4 = NULL;
 
 float rawAD7190_1_C1 = 0;
 float rawAD7190_1_C2 = 0;
@@ -28,8 +30,12 @@ bool LoadCell_Tasks::begin_ADC(int arr_cs[], int arraysize, int Dout1, int Din1,
   //SPI port init
   SPI_1 = new SPIClass(FSPI);
   SPI_2 = new SPIClass(FSPI);
-  SPI_1->begin(Sclk, Dout1, Din1, -1);  // cs3 and cs4
-  SPI_2->begin(Sclk, Dout2, Din2, -1);  // cs1 and cs2
+  SPI_3 = new SPIClass(FSPI);
+  SPI_4 = new SPIClass(FSPI);
+  SPI_1->begin(Sclk, Dout2, Din2, arr_cs[1]);
+  SPI_2->begin(Sclk, Dout2, Din2, arr_cs[2]);
+  SPI_3->begin(Sclk, Dout1, Din1, arr_cs[3]);
+  SPI_4->begin(Sclk, Dout1, Din1, arr_cs[4]);
 
   //cs pin Initialize
   for (int i = 0: i < arraysize; i++) {
@@ -39,10 +45,10 @@ bool LoadCell_Tasks::begin_ADC(int arr_cs[], int arraysize, int Dout1, int Din1,
 
   //AD7190 Init
   uint8_t dout2 = Dout2; uint8_t dout1 = Dout1;
-  ad7190_1 = new AD7190(SPI_2, dout2, "A");
+  ad7190_1 = new AD7190(SPI_1, dout2, "A");
   ad7190_2 = new AD7190(SPI_2, dout2, "A");
-  ad7190_3 = new AD7190(SPI_1, dout1, "A");
-  ad7190_4 = new AD7190(SPI_1, dout1, "A");
+  ad7190_3 = new AD7190(SPI_2, dout1, "A");
+  ad7190_4 = new AD7190(SPI_3, dout1, "A");
 
   if(ad7190_1->begin() && ad7190_2->begin && ad7190_1->begin() && ad7190_2->begin){
     Serial.println(F("AD7190 begin: OK"));
@@ -55,3 +61,4 @@ bool LoadCell_Tasks::begin_ADC(int arr_cs[], int arraysize, int Dout1, int Din1,
   }
   return false;
 }
+
