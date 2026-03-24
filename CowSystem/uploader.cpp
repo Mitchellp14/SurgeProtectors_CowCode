@@ -16,8 +16,8 @@
 #include "time.h"
 
 // --- WiFi & Firebase credentials ---
-#define WIFI_SSID "You Betta WIFI" //CHANGE IF NEEDED!!!
-#define WIFI_PASSWORD "Titanic1Doll85"
+#define WIFI_SSID "CapstoneWifi2" //CHANGE IF NEEDED!!!
+#define WIFI_PASSWORD "RuleNumber9"
 
 #define Web_API_KEY "AIzaSyCgKeJBId5Ni2kR6hqma8Di08GPwoKtTBk"
 #define DATABASE_URL "https://project-cow-database-default-rtdb.firebaseio.com/"
