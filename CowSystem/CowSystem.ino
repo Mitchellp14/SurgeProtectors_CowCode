@@ -4,12 +4,14 @@
 // and runs them on a simple millis()-based schedule (no FreeRTOS).
 
 #include <Arduino.h>
+#include <WiFi.h>
 #include "Scheduler.h"
 #include "types.h"
 #include "RfidTask.h"
 #include "gasTasks.h"
 #include "manager.h"
 #include "uploader.h"
+#include "Display.h"
 
 // --- Pin assignments ---
 static const int RFID_RX_PIN = 14;     // RFID: single-wire RX
@@ -23,11 +25,14 @@ static const int INIR_TX_PIN = 16;     // INIR2 methane UART TX
 static const int I2C_SDA = 6;
 static const int I2C_SCL = 7;
 
+
+
 // --- Modules ---
 RfidTask rfid;
 GasTasks gas;
 SessionManager manager;
 Uploader uploader;
+Display display;
 
 // --- Scheduling ---
 // intervalMs = 0 means run every loop iteration.
@@ -99,7 +104,12 @@ static bool uploadMinuteAverage(uint32_t minuteEpoch, const GasAccum &acc) {
 
   // Use a fixed tag/category so averages don’t mix with RFID events
   // Example: RFID tag name "MINUTE_AVG"
-  return uploader.uploadGasSnapshot("MINUTE_AVG", avg, minuteEpoch);
+  bool ok = uploader.uploadGasSnapshot("MINUTE_AVG", avg, minuteEpoch);
+  if (ok) {
+    bool wifiOk = (WiFi.status() == WL_CONNECTED);
+    display.update(wifiOk, uploader.ready(), "MINUTE_AVG", avg, minuteEpoch);
+  }
+  return ok;
 }
 
 void setup() {
@@ -108,6 +118,7 @@ void setup() {
 
   rfid.begin(RFID_RX_PIN, RFID_TX_PIN, RFID_BAUD);
   gas.begin(I2C_SDA, I2C_SCL, INIR_RX_PIN, INIR_TX_PIN);
+  display.begin();
 
   manager.begin(20000, 5000); // 20s session, upload every 5s
   uploader.begin();
@@ -136,7 +147,11 @@ void loop() {
     if (manager.shouldUploadNow(now) && uploader.ready()) {
       GasReading gr = gas.getLatest();
       uint32_t epoch = uploader.epochNow();
-      (void)uploader.uploadGasSnapshot(manager.currentTag(), gr, epoch);
+      bool ok = uploader.uploadGasSnapshot(manager.currentTag(), gr, epoch);
+      if (ok) {
+        bool wifiOk = (WiFi.status() == WL_CONNECTED);
+        display.update(wifiOk, uploader.ready(), manager.currentTag(), gr, epoch);
+      }
     }
   }
 
