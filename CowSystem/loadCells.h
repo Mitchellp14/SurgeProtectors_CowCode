@@ -10,14 +10,14 @@
  *  "Bus A" (FSPI / SPI2 — the only true hardware SPI on C6):
  *    MOSI (DIN1)  : IO22
  *    MISO (DOUT1) : IO23
- *    CS1          : IO05   → ADC_A1 (AIN0/1 ref REFIN2, AIN2/3 ref REFIN1)
- *    CS2          : IO01   → ADC_A2 (AIN0/1 ref REFIN2, AIN2/3 ref REFIN1)
+ *    CS1          : IO03   → ADC_A1 (AIN0/1 ref REFIN2, AIN2/3 ref REFIN1)
+ *    CS2          : IO02   → ADC_A2 (AIN0/1 ref REFIN2, AIN2/3 ref REFIN1)
  *
  *  "Bus B" (HSPI — bit-banged software SPI, see IMPORTANT NOTE below):
  *    MOSI (DIN2)  : IO20
  *    MISO (DOUT2) : IO21
- *    CS3          : IO03   → ADC_B1 (AIN0/1 ref REFIN2, AIN2/3 ref REFIN1)
- *    CS4          : IO02   → ADC_B2 (AIN0/1 ref REFIN2, AIN2/3 ref REFIN1)
+ *    CS3          : IO05   → ADC_B1 (AIN0/1 ref REFIN2, AIN2/3 ref REFIN1)
+ *    CS4          : IO01   → ADC_B2 (AIN0/1 ref REFIN2, AIN2/3 ref REFIN1)
  *
  * IMPORTANT — ESP32-C6 SPI hardware limitation
  * ---------------------------------------------
