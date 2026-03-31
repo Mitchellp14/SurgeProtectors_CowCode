@@ -12,7 +12,8 @@
 static SCD30 airSensor;
 
 // INIR2 UART on Serial2
-static HardwareSerial INIRSerial(1);
+static HardwareSerial INIRSerial(0);
+//HardwareSerial& INIR = Serial0;
 
 static const uint32_t INIR_BAUD = 38400;
 static const uint32_t INIR_WARMUP_MS = 45000UL;
