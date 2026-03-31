@@ -1,6 +1,24 @@
 // Display.cpp
 #include "Display.h"
 
+// ---------------- SD helper ----------------
+bool appendCsvRow(uint32_t epoch, const String& currentTag, float co2ppm, float ch4ppm) {
+  File file = SD.open("/test.csv", FILE_APPEND);
+  if (!file) {
+    return false;
+  }
+
+  file.print(epoch);
+  file.print(",");
+  file.print(currentTag);
+  file.print(",");
+  file.print(co2ppm);
+  file.print(",");
+  file.println(ch4ppm);
+  file.close();
+  return true;
+}
+
 void Display::begin() {
   SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
   delay(50);
@@ -90,4 +108,10 @@ void Display::update(bool wifiConnected,
   printLine(10, 185, "t=" + String(epoch));
 
   drawCow(215, 70, 4);
+
+ //mostly pseudocode //nvm this might actually work bruh
+ if (!wifiConnected || !firebaseReady) {
+    //store data locally on SD card
+    appendCsvRow(epoch, currentTag, gas.co2ppm, gas.methane_ppm);
+  }
 }

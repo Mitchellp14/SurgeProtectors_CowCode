@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <SPI.h>
+#include <SD.h> //may not be needed
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 #include "types.h"
@@ -18,13 +19,18 @@ public:
               uint32_t epoch);
 
 private:
+  //TFT pin assignments
   static constexpr int TFT_CS  = 2;
   static constexpr int TFT_DC  = 21;
   static constexpr int TFT_RST = -1;
 
+  // SPI pin assignments
   static constexpr int SPI_SCK  = 19;
   static constexpr int SPI_MISO = 20;
   static constexpr int SPI_MOSI = 18;
+
+  //Added by Avery 3-29-26, setting both the chip select for TFT and SD to the same thing:
+  static constexpr int SD_CS    = 2; //This is also kind of a SPI pin but it'll be labeled as SD_CS to indicate it's the chip select for SD card
 
   Adafruit_ILI9341 tft = Adafruit_ILI9341(&SPI, TFT_DC, TFT_CS, TFT_RST);
 
