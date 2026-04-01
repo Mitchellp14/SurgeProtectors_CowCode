@@ -347,19 +347,24 @@ double AD7190Driver::rawToMillivolts(uint32_t raw) const
 // ─── recoverADC() ────────────────────────────────────────────────────────
 void AD7190Driver::recoverADC(AD7190Index adc)
 {
-    // Exit continuous read mode and any other stuck state.
-    // Send 64 bits of 0xFF on DIN with CS held low — this resets
-    // the ADC regardless of what state it's in, including CREAD mode.
-    Serial.printf("[AD7190] ADC%d: Running recovery reset\n", (int)adc+1);
-
+    // Send 64 high bits to exit CREAD/any stuck state
     csSelect(adc);
     _spi.beginTransaction(_spiSettings);
-    for (int i = 0; i < 8; i++) _spi.transfer(0xFF);  // 64 bits
+    for (int i = 0; i < 8; i++) _spi.transfer(0xFF);
     _spi.endTransaction();
     csDeselect(adc);
-    delay(5);
+    delay(2);
 
-    // Re-initialize the ADC fully
+    // Restore GPOCON (BPDSW) — this is lost on reset
     writeRegister(adc, AD7190_REG_GPOCON, AD7190_GPOCON_BPDSW, 1);
-    calibrate(adc);
+
+    // Restore mode and config to a known idle state
+    // (no conversion running, just idle with correct settings)
+    uint32_t modeIdle = AD7190_MODE_IDLE
+                      | AD7190_MODE_DAT_STA
+                      | AD7190_MODE_CLK_INT_NOTAVAIL
+                      | AD7190_MODE_SINC4
+                      | AD7190_MODE_REJ60
+                      | AD7190_FS_50HZ_CHOP;
+    writeRegister(adc, AD7190_REG_MODE, modeIdle, 3);
 }
