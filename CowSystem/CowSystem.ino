@@ -4,12 +4,15 @@
 // and runs them on a simple millis()-based schedule (no FreeRTOS).
 
 #include <Arduino.h>
+#include <WiFi.h>
 #include "Scheduler.h"
 #include "types.h"
 #include "RfidTask.h"
 #include "gasTasks.h"
 #include "manager.h"
 #include "uploader.h"
+#include "Display.h"
+#include "AD7190.h"
 
 // --- Pin assignments ---
 static const int RFID_RX_PIN = 14;     // RFID: single-wire RX
@@ -23,17 +26,25 @@ static const int INIR_TX_PIN = 16;     // INIR2 methane UART TX
 static const int I2C_SDA = 6;
 static const int I2C_SCL = 7;
 
+
+
 // --- Modules ---
 RfidTask rfid;
 GasTasks gas;
 SessionManager manager;
 Uploader uploader;
+Display display;
+AD7190Driver loadCells;
+
+// --- Latest readings ---
+LoadCellReading latestLoad;
 
 // --- Scheduling ---
 // intervalMs = 0 means run every loop iteration.
 Task tRFID   {0,    0};    // RFID should be responsive
 Task tGasF   {0,    0};    // INIR2 UART parsing should run constantly
 Task tGasS   {1000, 0};    // SCD30 poll rate (~1 Hz)
+Task tLoad   {5000, 0};    // Load cells: read every 5 seconds
 Task tMgr    {50,   0};    // session timing/state
 Task tUpTick {0,    0};    // keep Firebase app loop alive
 Task tUpload {20,   0};    // check upload trigger frequently
@@ -99,7 +110,12 @@ static bool uploadMinuteAverage(uint32_t minuteEpoch, const GasAccum &acc) {
 
   // Use a fixed tag/category so averages don’t mix with RFID events
   // Example: RFID tag name "MINUTE_AVG"
-  return uploader.uploadGasSnapshot("MINUTE_AVG", avg, minuteEpoch);
+  bool ok = uploader.uploadGasSnapshot("MINUTE_AVG", avg, minuteEpoch);
+  if (ok) {
+    bool wifiOk = (WiFi.status() == WL_CONNECTED);
+    display.update(wifiOk, uploader.ready(), "MINUTE_AVG", avg, minuteEpoch);
+  }
+  return ok;
 }
 
 void setup() {
@@ -108,6 +124,8 @@ void setup() {
 
   rfid.begin(RFID_RX_PIN, RFID_TX_PIN, RFID_BAUD);
   gas.begin(I2C_SDA, I2C_SCL, INIR_RX_PIN, INIR_TX_PIN);
+  display.begin();
+  loadCells.begin();
 
   manager.begin(20000, 5000); // 20s session, upload every 5s
   uploader.begin();
@@ -122,6 +140,16 @@ void loop() {
   if (due(tRFID, now))   rfid.tick();
   if (due(tGasF, now))   gas.tickFast();
   if (due(tGasS, now))   gas.tickSlow(now);
+  if (due(tLoad, now)) {
+    AD7190Result results[8];
+    loadCells.readAll(results);
+    for (int i = 0; i < 8; i++) {
+      latestLoad.valid[i] = results[i].valid;
+      latestLoad.raw[i] = results[i].raw;
+      latestLoad.voltage[i] = results[i].voltage;
+    }
+    latestLoad.last_ms = now;
+  }
   if (due(tMgr, now))    manager.tick(now);
   if (due(tUpTick, now)) uploader.tick();
 
@@ -136,7 +164,17 @@ void loop() {
     if (manager.shouldUploadNow(now) && uploader.ready()) {
       GasReading gr = gas.getLatest();
       uint32_t epoch = uploader.epochNow();
-      (void)uploader.uploadGasSnapshot(manager.currentTag(), gr, epoch);
+      bool ok = uploader.uploadGasSnapshot(manager.currentTag(), gr, epoch);
+      if (ok) {
+        bool wifiOk = (WiFi.status() == WL_CONNECTED);
+        display.update(wifiOk, uploader.ready(), manager.currentTag(), gr, epoch);
+      }
+      
+      // Also upload load cell data
+      bool loadOk = uploader.uploadLoadCellSnapshot(manager.currentTag(), latestLoad, epoch);
+      if (loadOk) {
+        Serial.println("Load cell data uploaded successfully");
+      }
     }
   }
 

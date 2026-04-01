@@ -193,7 +193,7 @@ bool Uploader::uploadGasSnapshot(const String &rfidTag, const GasReading &gas, u
     return false;
   }
 
-  String parentPath = "/UsersData/IntegrationTest2/IntegrationTest2_Gas/" + String(epoch);
+  String parentPath = "/users/AcceptanceTest/" + rfidTag + "/" + String(epoch);
 
   Serial.println("---- Upload Attempt ----");
   Serial.print("Path: ");
@@ -230,6 +230,70 @@ bool Uploader::uploadGasSnapshot(const String &rfidTag, const GasReading &gas, u
 
   // Use object_t type - this is the CORRECT way for FirebaseClient
   Database.set<object_t>(aClient, parentPath, jsonData, processData, "RTDB_Send_Data");
+  
+  return true;
+}
+
+bool Uploader::uploadLoadCellSnapshot(const String &rfidTag, const LoadCellReading &load, uint32_t epoch) {
+  if (!app.ready()) {
+    Serial.println("Firebase NOT ready - skipping load cell upload");
+    return false;
+  }
+  if (epoch == 0) {
+    Serial.println("Epoch invalid (0) - skipping load cell upload");
+    return false;
+  }
+
+  String parentPath = "/users/AcceptanceTest/" + rfidTag + "/" + String(epoch);
+
+  Serial.println("---- Load Cell Upload Attempt ----");
+  Serial.print("Path: ");
+  Serial.println(parentPath);
+
+  // Create JSON objects - need many for 8 load cells × (raw, voltage, valid) + timestamp
+  object_t jsonData, obj1, obj2, obj3, obj4, obj5, obj6, obj7, obj8, obj9, obj10,
+           obj11, obj12, obj13, obj14, obj15, obj16, obj17, obj18, obj19, obj20,
+           obj21, obj22, obj23, obj24, obj25;
+  JsonWriter writer;
+
+  // For each load cell
+  writer.create(obj1, "lc0_valid", load.valid[0]);
+  writer.create(obj2, "lc0_raw", (int)load.raw[0]);
+  writer.create(obj3, "lc0_voltage_mv", load.voltage[0]);
+  writer.create(obj4, "lc1_valid", load.valid[1]);
+  writer.create(obj5, "lc1_raw", (int)load.raw[1]);
+  writer.create(obj6, "lc1_voltage_mv", load.voltage[1]);
+  writer.create(obj7, "lc2_valid", load.valid[2]);
+  writer.create(obj8, "lc2_raw", (int)load.raw[2]);
+  writer.create(obj9, "lc2_voltage_mv", load.voltage[2]);
+  writer.create(obj10, "lc3_valid", load.valid[3]);
+  writer.create(obj11, "lc3_raw", (int)load.raw[3]);
+  writer.create(obj12, "lc3_voltage_mv", load.voltage[3]);
+  writer.create(obj13, "lc4_valid", load.valid[4]);
+  writer.create(obj14, "lc4_raw", (int)load.raw[4]);
+  writer.create(obj15, "lc4_voltage_mv", load.voltage[4]);
+  writer.create(obj16, "lc5_valid", load.valid[5]);
+  writer.create(obj17, "lc5_raw", (int)load.raw[5]);
+  writer.create(obj18, "lc5_voltage_mv", load.voltage[5]);
+  writer.create(obj19, "lc6_valid", load.valid[6]);
+  writer.create(obj20, "lc6_raw", (int)load.raw[6]);
+  writer.create(obj21, "lc6_voltage_mv", load.voltage[6]);
+  writer.create(obj22, "lc7_valid", load.valid[7]);
+  writer.create(obj23, "lc7_raw", (int)load.raw[7]);
+  writer.create(obj24, "lc7_voltage_mv", load.voltage[7]);
+  writer.create(obj25, "timestamp", (int)epoch);
+
+  // Join all objects
+  writer.join(jsonData, 25, obj1, obj2, obj3, obj4, obj5, obj6, obj7, obj8, obj9, obj10,
+              obj11, obj12, obj13, obj14, obj15, obj16, obj17, obj18, obj19, obj20,
+              obj21, obj22, obj23, obj24, obj25);
+
+  // Debug: Print what we're sending
+  Serial.print("Load Cell JSON Payload: ");
+  Serial.println(jsonData.c_str());
+
+  // Upload
+  Database.set<object_t>(aClient, parentPath, jsonData, processData, "RTDB_Send_LoadCell");
   
   return true;
 }

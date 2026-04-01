@@ -24,6 +24,9 @@ public:
   // Push one gas snapshot under the given RFID tag + timestamp
   bool uploadGasSnapshot(const String &rfidTag, const GasReading &gas, uint32_t epoch); //NOTE: If there is a runtime error, get rid of String RFIDtag datatype
 
+  // Push one load cell snapshot under the given RFID tag + timestamp
+  bool uploadLoadCellSnapshot(const String &rfidTag, const LoadCellReading &load, uint32_t epoch);
+
 private:
   void initWiFi();
 };

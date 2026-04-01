@@ -20,3 +20,13 @@ struct GasReading {
 
   uint32_t last_ms = 0;        // last update time (millis)
 };
+
+struct LoadCellReading {
+  // 8 load cells: 4 ADCs × 2 channels each
+  // Indexed as [adc*2 + channel] where adc=0-3, channel=0-1
+  bool valid[8] = {false};
+  uint32_t raw[8] = {0};
+  double voltage[8] = {0.0};  // in mV
+
+  uint32_t last_ms = 0;       // last update time (millis)
+};
