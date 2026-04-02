@@ -2,10 +2,12 @@
 #include <HardwareSerial.h>
 #include <SparkFun_SCD30_Arduino_Library.h>
 
-HardwareSerial INIR(1);
+HardwareSerial& INIR = Serial0;
 SCD30 airSensor;
 
 uint32_t latestMethane = 0;
+uint32_t latestError = 0;
+uint32_t latestITemp = 0;
 float latestCO2 = 0.0;
 float latestTemp = 0.0;
 
@@ -24,7 +26,7 @@ void setup() {
 
   Serial.println("--- System Initializing ---");
 
-  Wire.begin();  
+  Wire.begin(6, 7);  
   if (!airSensor.begin(Wire)) {
     Serial.println("SCD30 not detected. Check wiring!");
     while (1) { delay(1000); }
