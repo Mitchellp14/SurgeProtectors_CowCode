@@ -42,6 +42,6 @@ private:
   uint32_t lastSCDMs = 0;
 
   // Stored pin config
-  int sda = -1, scl = -1;
-  int inirRX = -1, inirTX = -1;
+  int sda = 6, scl = 7;
+  int inirRX = 17, inirTX = 16;
 };
