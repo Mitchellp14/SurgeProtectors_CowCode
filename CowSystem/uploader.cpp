@@ -34,9 +34,12 @@ using AsyncClient = AsyncClientClass;
 static AsyncClient aClient(ssl_client);
 static RealtimeDatabase Database;
 
-static object_t jsonData, obj1, obj2, obj3, obj4, obj5, obj6, obj7, obj8;
-static JsonWriter writer;
+//static object_t jsonData, obj1, obj2, obj3, obj4, obj5, obj6, obj7, obj8;
+//static JsonWriter writer;
 
+static bool uploadPending = false;
+static uint32_t lastUploadDone = 0;
+static const uint32_t MIN_UPLOAD_GAP_MS = 200;
 // void Uploader::initWiFi() {
 //   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 //   Serial.print("Connecting to WiFi ..");
@@ -47,21 +50,33 @@ static JsonWriter writer;
 //   Serial.println("Connected!");
 // }
 
+// upload pending?
+bool Uploader::isUploadPending() const {
+  return uploadPending;
+}
+
 //Added
 void processData(AsyncResult &aResult) {
   if (!aResult.isResult()) return;
-  
+
   if (aResult.isError()) {
-    Serial.printf("❌ Upload FAILED: %s (code: %d)\n", 
-                  aResult.error().message().c_str(), 
+    Serial.printf("❌ Upload FAILED: %s (code: %d)\n",
+                  aResult.error().message().c_str(),
                   aResult.error().code());
+    uploadPending  = false;
+    lastUploadDone = millis();
+
   } else if (aResult.available()) {
-    // Only print success when we have actual payload response, not just queue confirmation
-    Serial.printf("✅ Upload SUCCESS! Task: %s, Response: %s\n", 
-                  aResult.uid().c_str(), 
-                  aResult.c_str());
+    if (uploadPending) {
+      Serial.printf("✅ Upload SUCCESS!\n");
+      // Don't release immediately — give async client time to fully close
+     // the SSL operation before we allow another request
+      lastUploadDone = millis();
+      uploadPending  = false;
+    }
   }
 }
+
 //Added
 
 void Uploader::initWiFi() {
@@ -105,19 +120,51 @@ void Uploader::initWiFi() {
 //   Serial.println("Uploader initialized (WiFi + NTP + Firebase).");
 // }
 
+//void Uploader::begin() {
+//
+//  Serial.println("---- Uploader Begin ----");
+//
+//  initWiFi();
+//
+//  Serial.println("Starting NTP sync...");
+//  configTime(0, 0, ntpServer);
+//
+//  delay(2000);
+//
+//  time_t now = time(nullptr);
+//  Serial.print("Epoch after NTP sync attempt: ");
+//  Serial.println((uint32_t)now);
+//
+//  ssl_client.setInsecure();
+//  ssl_client.setConnectionTimeout(1000);
+//  ssl_client.setHandshakeTimeout(5);
+//
+//  Serial.println("Initializing Firebase...");
+//
+//  initializeApp(aClient, app, getAuth(user_auth), nullptr, "authTask");
+//
+//  app.getApp<RealtimeDatabase>(Database);
+//  Database.url(DATABASE_URL);
+//
+//  Serial.println("Firebase initialized.");
+//}
+
 void Uploader::begin() {
-
   Serial.println("---- Uploader Begin ----");
-
   initWiFi();
 
   Serial.println("Starting NTP sync...");
   configTime(0, 0, ntpServer);
-
-  delay(2000);
-
-  time_t now = time(nullptr);
-  Serial.print("Epoch after NTP sync attempt: ");
+  
+  // Wait for valid NTP instead of fixed 2s delay
+  time_t now = 0;
+  uint32_t start = millis();
+  while (now < 1000000000UL && millis() - start < 15000) {
+    time(&now);
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.print("\nEpoch: ");
   Serial.println((uint32_t)now);
 
   ssl_client.setInsecure();
@@ -125,25 +172,35 @@ void Uploader::begin() {
   ssl_client.setHandshakeTimeout(5);
 
   Serial.println("Initializing Firebase...");
-
   initializeApp(aClient, app, getAuth(user_auth), nullptr, "authTask");
-
   app.getApp<RealtimeDatabase>(Database);
   Database.url(DATABASE_URL);
 
-  Serial.println("Firebase initialized.");
+  // Wait for auth to complete before returning
+  Serial.print("Waiting for Firebase auth");
+  uint32_t authStart = millis();
+  while (!app.ready()) {
+    app.loop();
+    Serial.print(".");
+    delay(100);
+    if (millis() - authStart > 30000) {
+      Serial.println("\nFirebase auth timeout!");
+      return;
+    }
+  }
+  Serial.println("\nFirebase ready!");
 }
 
-// void Uploader::tick() {
-//   // Keep Firebase background state machine moving
-//   app.loop();
-// }
+ //void Uploader::tick() {
+ //  // Keep Firebase background state machine moving
+ //  app.loop();
+ //}
 
 void Uploader::tick() {
 
   app.loop();
 
-  static uint32_t lastPrint = 0;
+  //static uint32_t lastPrint = 0;
 
   // if (millis() - lastPrint > 5000) { //Prints if firebase is ready every 5 seconds. Annoying!!!
   //   lastPrint = millis();
@@ -184,6 +241,16 @@ uint32_t Uploader::epochNow() {
 }
 
 bool Uploader::uploadGasSnapshot(const String &rfidTag, const GasReading &gas, uint32_t epoch) {
+  if (uploadPending) {                              
+    Serial.println("Upload pending, skipping");     
+    return false;                                   
+  }
+  uint32_t msSinceLast = millis() - lastUploadDone;
+  if (msSinceLast < MIN_UPLOAD_GAP_MS) {
+    Serial.printf("Too soon (%lums since last), skipping\n", msSinceLast);
+    return false;
+  }
+
   if (!app.ready()) {
     Serial.println("Firebase NOT ready - skipping upload");
     return false;
@@ -228,13 +295,26 @@ bool Uploader::uploadGasSnapshot(const String &rfidTag, const GasReading &gas, u
   Serial.print("JSON Payload: ");
   Serial.println(jsonData.c_str());
 
+  //Serial.printf("Heap before upload: %lu, min ever: %lu\n", 
+  //            ESP.getFreeHeap(), ESP.getMinFreeHeap());
+  uploadPending = true;
   // Use object_t type - this is the CORRECT way for FirebaseClient
   Database.set<object_t>(aClient, parentPath, jsonData, processData, "RTDB_Send_Data");
-  
+  delay(50);
   return true;
 }
 
 bool Uploader::uploadLoadCellSnapshot(const String &rfidTag, const LoadCellReading &load, uint32_t epoch) {
+  if (uploadPending) {                              
+    Serial.println("Upload pending, skipping");     
+    return false;                                   
+  } 
+  uint32_t msSinceLast = millis() - lastUploadDone;
+  if (msSinceLast < MIN_UPLOAD_GAP_MS) {
+    Serial.printf("Too soon (%lums since last), skipping\n", msSinceLast);
+    return false;
+  }
+                                       
   if (!app.ready()) {
     Serial.println("Firebase NOT ready - skipping load cell upload");
     return false;
@@ -292,8 +372,9 @@ bool Uploader::uploadLoadCellSnapshot(const String &rfidTag, const LoadCellReadi
   Serial.print("Load Cell JSON Payload: ");
   Serial.println(jsonData.c_str());
 
+  uploadPending = true;
   // Upload
   Database.set<object_t>(aClient, parentPath, jsonData, processData, "RTDB_Send_LoadCell");
-  
+  delay(50);
   return true;
 }
