@@ -27,6 +27,9 @@ public:
   // Push one load cell snapshot under the given RFID tag + timestamp
   bool uploadLoadCellSnapshot(const String &rfidTag, const LoadCellReading &load, uint32_t epoch);
 
+  //expose a way to check if upload is pending
+  bool isUploadPending() const;
+
 private:
   void initWiFi();
 };
