@@ -34,6 +34,8 @@ using AsyncClient = AsyncClientClass;
 static AsyncClient aClient(ssl_client);
 static RealtimeDatabase Database;
 
+#define USER "AcceptanceTest" //CHANGE THIS TO YOUR USERNAME OR WHATEVER YOU WANT!!!
+
 //static object_t jsonData, obj1, obj2, obj3, obj4, obj5, obj6, obj7, obj8;
 //static JsonWriter writer;
 
@@ -260,7 +262,7 @@ bool Uploader::uploadGasSnapshot(const String &rfidTag, const GasReading &gas, u
     return false;
   }
 
-  String parentPath = "/users/AcceptanceTest/" + rfidTag + "/" + String(epoch);
+  String parentPath = "/UsersData/" + USER + "/" + rfidTag + "/" + String(epoch);
 
   Serial.println("---- Upload Attempt ----");
   Serial.print("Path: ");
@@ -324,7 +326,7 @@ bool Uploader::uploadLoadCellSnapshot(const String &rfidTag, const LoadCellReadi
     return false;
   }
 
-  String parentPath = "/users/AcceptanceTest/" + rfidTag + "/" + String(epoch);
+  String parentPath = "/UsersData/" + USER + "/" + rfidTag + "/" + String(epoch);
 
   Serial.println("---- Load Cell Upload Attempt ----");
   Serial.print("Path: ");
