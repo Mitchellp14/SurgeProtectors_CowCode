@@ -1,7 +1,5 @@
 // CowSystem.ino
-// Main entry point for the firmware.
-// Wires together the modules (RFID, gas sensors, session manager, uploader)
-// and runs them on a simple millis()-based schedule (no FreeRTOS).
+#define AD7190_DEBUG_CONFIG
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -15,65 +13,57 @@
 #include "AD7190.h"
 
 // --- Pin assignments ---
-static const int RFID_RX_PIN = 14;     // RFID: single-wire RX
-static const int RFID_TX_PIN = -1;     // not used
+static const int RFID_RX_PIN    = 14;
+static const int RFID_TX_PIN    = -1;
 static const uint32_t RFID_BAUD = 9600;
+static const int INIR_RX_PIN    = 16;
+static const int INIR_TX_PIN    = 17;
+static const int I2C_SDA        = 6;
+static const int I2C_SCL        = 7;
+static const float VREF_MV      = 5000.0f;
 
-static const int INIR_RX_PIN = 17;     // INIR2 methane UART RX
-static const int INIR_TX_PIN = 16;     // INIR2 methane UART TX
-
-// SCD30 I2C pins
-static const int I2C_SDA = 6;
-static const int I2C_SCL = 7;
-
-
+// --- CS pins ---
+static const int CS_PINS[] = {2, 3, 4, 5, 1};
+static const int NUM_CS     = 5;
 
 // --- Modules ---
-RfidTask rfid;
-GasTasks gas;
+RfidTask       rfid;
+GasTasks       gas;
 SessionManager manager;
-Uploader uploader;
-Display display;
-AD7190Driver loadCells;
+Uploader       uploader;
+Display        display;
+AD7190Driver   adcs(VREF_MV);
 
-// --- Latest readings ---
-LoadCellReading latestLoad;
+// --- Shared state ---
+static LoadCellReading latestLoad;
 
-// --- Scheduling ---
-// intervalMs = 0 means run every loop iteration.
-Task tRFID   {0,    0};    // RFID should be responsive
-Task tGasF   {0,    0};    // INIR2 UART parsing should run constantly
-Task tGasS   {1000, 0};    // SCD30 poll rate (~1 Hz)
-Task tLoad   {5000, 0};    // Load cells: read every 5 seconds
-Task tMgr    {50,   0};    // session timing/state
-Task tUpTick {0,    0};    // keep Firebase app loop alive
-Task tUpload {20,   0};    // check upload trigger frequently
-Task tSample10s {10000, 0};   // sample every 10 seconds
-Task tMinuteChk {1000,  0};   // check minute rollover every 1 second
+// --- Tasks ---
+Task tRFID      {0,     0};   // run every loop — RFID must be responsive
+Task tGasF      {0,     0};   // run every loop — INIR UART parsing
+Task tGasS      {1000,  0};   // SCD30 poll ~1Hz
+Task tLoad      {500,  0};   // ADC read ~1Hz, no upload
+Task tLoadUpload{10000, 0};   // load cell upload every 30s
+Task tMgr       {50,    0};   // session state machine
+Task tUpTick    {20,     0};   // Firebase keepalive
+Task tUpload    {2000,  0};   // RFID session upload every 5s
+Task tSample10s {5000, 0};   // gas accumulator sample
+Task tMinuteChk {1000,  0};   // minute rollover check
 
-//Gas Accumulator for averaging every minute
+// --- Gas accumulator ---
 struct GasAccum {
-  uint32_t count = 0;
-  double sumTemp = 0;
-  double sumHum  = 0;
-  double sumCO2  = 0;
-  double sumCH4  = 0;
-  uint32_t ch4Count = 0;     // only count valid CH4 samples
-
-  // track which minute we’re accumulating
+  uint32_t count = 0, ch4Count = 0;
+  double sumTemp = 0, sumHum = 0, sumCO2 = 0, sumCH4 = 0;
   uint32_t currentMinute = 0;
   bool minuteInitialized = false;
 
   void resetForMinute(uint32_t minute) {
-    count = 0;
+    count = ch4Count = 0;
     sumTemp = sumHum = sumCO2 = sumCH4 = 0;
-    ch4Count = 0;
     currentMinute = minute;
     minuteInitialized = true;
   }
 
   void addSample(const GasReading &g) {
-    // only average the pieces that are valid-ish
     if (g.scd_valid) {
       sumTemp += g.tempC;
       sumHum  += g.humidity;
@@ -86,48 +76,66 @@ struct GasAccum {
     }
   }
 
-  bool hasAny() const {
-    return count > 0 || ch4Count > 0;
-  }
+  bool hasAny() const { return count > 0 || ch4Count > 0; }
 };
 static GasAccum gasAccum;
 
-static bool uploadMinuteAverage(uint32_t minuteEpoch, const GasAccum &acc) {
-  GasReading avg;
+// --- Helpers ---
+static void uploadMinuteAverage(uint32_t minuteEpoch, const GasAccum &acc) {
+  if (!uploader.ready() || !acc.hasAny()) return;
+
+  GasReading avg = {};
   avg.scd_valid = (acc.count > 0);
   if (avg.scd_valid) {
     avg.tempC    = (float)(acc.sumTemp / acc.count);
     avg.humidity = (float)(acc.sumHum  / acc.count);
     avg.co2ppm   = (float)(acc.sumCO2  / acc.count);
   }
-
-  avg.ch4_valid = (acc.ch4Count > 0);
+  avg.ch4_valid   = (acc.ch4Count > 0);
   avg.methane_ppm = avg.ch4_valid ? (int)lround(acc.sumCH4 / acc.ch4Count) : -1;
-
-  // Keep these for debugging
   avg.inir_faults = 0;
   avg.inir_temp_c = NAN;
 
-  // Use a fixed tag/category so averages don’t mix with RFID events
-  // Example: RFID tag name "MINUTE_AVG"
-  bool ok = uploader.uploadGasSnapshot("MINUTE_AVG", avg, minuteEpoch);
-  if (ok) {
-    bool wifiOk = (WiFi.status() == WL_CONNECTED);
-    display.update(wifiOk, uploader.ready(), "MINUTE_AVG", avg, minuteEpoch);
-  }
-  return ok;
+  uploader.uploadGasSnapshot("MINUTE_AVG", avg, minuteEpoch);
 }
 
+static void handleGasAccumulator(uint32_t epoch) {
+  if (epoch == 0) return;
+  uint32_t minute = epoch / 60;
+
+  if (!gasAccum.minuteInitialized) {
+    gasAccum.resetForMinute(minute);
+    return;
+  }
+
+  // Minute rolled over — upload previous minute then reset
+  if (minute != gasAccum.currentMinute) {
+    uploadMinuteAverage(gasAccum.currentMinute * 60, gasAccum);
+    gasAccum.resetForMinute(minute);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 void setup() {
+  // Drive all CS pins high before anything else to prevent SPI glitches
+  for (int i = 0; i < NUM_CS; i++) {
+    pinMode(CS_PINS[i], OUTPUT);
+    digitalWrite(CS_PINS[i], HIGH);
+  }
+
   Serial.begin(115200);
   delay(500);
 
   rfid.begin(RFID_RX_PIN, RFID_TX_PIN, RFID_BAUD);
   gas.begin(I2C_SDA, I2C_SCL, INIR_RX_PIN, INIR_TX_PIN);
-  display.begin();
-  loadCells.begin();
 
-  manager.begin(20000, 5000); // 20s session, upload every 5s
+  Serial.println("\n=== AD7190 Weigh Scale System ===");
+  if (!adcs.begin()) {
+    Serial.println("[ERROR] One or more ADCs failed to initialise. Check wiring.");
+  }
+
+  manager.begin(20000, 5000);
   uploader.begin();
 
   Serial.println("CowSystem ready.");
@@ -136,95 +144,84 @@ void setup() {
 void loop() {
   uint32_t now = millis();
 
-  // --- Regular task ticks ---
-  if (due(tRFID, now))   rfid.tick();
-  if (due(tGasF, now))   gas.tickFast();
-  if (due(tGasS, now))   gas.tickSlow(now);
+  // --- Sensor ticks ---
+  if (due(tRFID, now)) rfid.tick();
+  if (due(tGasF, now)) gas.tickFast();
+  if (due(tGasS, now)) gas.tickSlow(now);
+
+  // --- ADC read (no upload here) ---
   if (due(tLoad, now)) {
     AD7190Result results[8];
-    loadCells.readAll(results);
+    adcs.readAll(results);
+
+    static uint32_t lastRaw[8]    = {0};
+    static uint8_t frozenCount[8] = {0};
+
     for (int i = 0; i < 8; i++) {
-      latestLoad.valid[i] = results[i].valid;
-      latestLoad.raw[i] = results[i].raw;
+      // Frozen channel detection
+      if (results[i].valid && results[i].raw == lastRaw[i]) {
+        if (++frozenCount[i] >= 3) {
+          Serial.printf("[WARN] Channel %d frozen at 0x%06lX for %d reads\n",
+                        i, results[i].raw, frozenCount[i]);
+        }
+      } else {
+        frozenCount[i] = 0;
+      }
+      lastRaw[i] = results[i].raw;
+
+      // Cache latest reading
+      latestLoad.valid[i]   = results[i].valid;
+      latestLoad.raw[i]     = results[i].raw;
       latestLoad.voltage[i] = results[i].voltage;
     }
     latestLoad.last_ms = now;
   }
-  if (due(tMgr, now))    manager.tick(now);
+
+  // --- Load cell upload (slow, separate from read) ---
+  if (due(tLoadUpload, now)) {
+    uint32_t epoch = uploader.epochNow();
+    if (uploader.ready() && epoch > 0) {
+      uploader.uploadLoadCellSnapshot("MINUTE_AVG_LC", latestLoad, epoch);
+    }
+  }
+
+  // --- Firebase keepalive ---
   if (due(tUpTick, now)) uploader.tick();
 
-  // --- RFID event -> start session ---
+  // --- Session manager ---
+  if (due(tMgr, now)) manager.tick(now);
+
+  // --- RFID tag consumed -> start session ---
   String tag;
   if (rfid.consumeTag(tag)) {
     manager.startSession(tag, now);
   }
 
-  // --- RFID session uploads (unchanged behavior) ---
+  // --- RFID session upload ---
   if (due(tUpload, now)) {
     if (manager.shouldUploadNow(now) && uploader.ready()) {
-      GasReading gr = gas.getLatest();
+      GasReading gr  = gas.getLatest();
       uint32_t epoch = uploader.epochNow();
-      bool ok = uploader.uploadGasSnapshot(manager.currentTag(), gr, epoch);
-      if (ok) {
-        bool wifiOk = (WiFi.status() == WL_CONNECTED);
-        display.update(wifiOk, uploader.ready(), manager.currentTag(), gr, epoch);
-      }
-      
-      // Also upload load cell data
-      bool loadOk = uploader.uploadLoadCellSnapshot(manager.currentTag(), latestLoad, epoch);
-      if (loadOk) {
-        Serial.println("Load cell data uploaded successfully");
-      }
-    }
-  }
-
-  // =========================================================
-  // Integration test logging plan:
-  //   - sample a gas reading every 10 seconds
-  //   - once per minute, upload the minute-average
-  // =========================================================
-
-  // --- 10s sampling into accumulator ---
-  if (due(tSample10s, now)) {
-    uint32_t epoch = uploader.epochNow();     // returns 0 if NTP isn't ready yet
-    if (epoch != 0) {
-      uint32_t minute = epoch / 60;
-
-      // Initialize or roll accumulator if we somehow jumped minutes
-      if (!gasAccum.minuteInitialized) {
-        gasAccum.resetForMinute(minute);
-      } else if (minute != gasAccum.currentMinute) {
-        // finalize previous minute before switching
-        if (uploader.ready() && gasAccum.hasAny()) {
-          (void)uploadMinuteAverage(gasAccum.currentMinute * 60, gasAccum);
+      if (epoch > 0) {
+        //bool wifiOk = (WiFi.status() == WL_CONNECTED);
+        if (uploader.uploadGasSnapshot(manager.currentTag(), gr, epoch)) {
+        //  display.update(wifiOk, uploader.ready(), manager.currentTag(), gr, epoch);
         }
-        gasAccum.resetForMinute(minute);
       }
-
-      GasReading g = gas.getLatest();
-      gasAccum.addSample(g);
     }
   }
 
-  // --- minute rollover check + upload the previous minute average ---
-  if (due(tMinuteChk, now)) {
+  // --- Gas accumulator: sample every 10s ---
+  if (due(tSample10s, now)) {
     uint32_t epoch = uploader.epochNow();
-    if (epoch == 0) return;  // no time sync yet, nothing to do
-
-    uint32_t minute = epoch / 60;
-
-    if (!gasAccum.minuteInitialized) {
-      gasAccum.resetForMinute(minute);
-      return;
+    if (epoch > 0) {
+      handleGasAccumulator(epoch);   // rolls over if minute changed
+      gasAccum.addSample(gas.getLatest());
     }
+  }
 
-    // minute changed -> upload the previous minute's average
-    if (minute != gasAccum.currentMinute) {
-      if (uploader.ready() && gasAccum.hasAny()) {
-        // store at the start-of-minute timestamp (minute*60)
-        (void)uploadMinuteAverage(gasAccum.currentMinute * 60, gasAccum);
-      }
-      gasAccum.resetForMinute(minute);
-    }
+  // --- Minute rollover check every 1s ---
+  if (due(tMinuteChk, now)) {
+    handleGasAccumulator(uploader.epochNow());
   }
 }
