@@ -17,6 +17,8 @@ public:
   void onTagRead(uint32_t id);
 
 private:
-  String pendingTag;
-  volatile bool hasTag = false;
+  friend class RfidNotification;   // ← add this line
+  volatile bool     hasTag     = false;
+  volatile uint32_t pendingId  = 0;
+  bool              initialized = false;   // ← guard added
 };
