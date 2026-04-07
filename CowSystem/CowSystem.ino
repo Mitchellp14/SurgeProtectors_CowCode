@@ -205,6 +205,7 @@ void loop() {
       if (epoch > 0) {
         //bool wifiOk = (WiFi.status() == WL_CONNECTED);
         if (uploader.uploadGasSnapshot(manager.currentTag(), gr, epoch)) {
+          uploader.uploadLoadCellSnapshot(manager.currentTag(), latestLoad, epoch); //Added by avery 4-7-26 (should upload to same tag+timestamp as gas snapshot)
         //  display.update(wifiOk, uploader.ready(), manager.currentTag(), gr, epoch);
         }
       }
