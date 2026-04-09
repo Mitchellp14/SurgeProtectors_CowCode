@@ -262,7 +262,7 @@ bool Uploader::uploadGasSnapshot(const String &rfidTag, const GasReading &gas, u
     return false;
   }
 
-  String parentPath = "/UsersData/AcceptanceTest/" + rfidTag + "/" + String(epoch);
+  String parentPath = "/UsersData/" + String(USER) + "/" + rfidTag + "/" + String(epoch);
 
   Serial.println("---- Upload Attempt ----");
   Serial.print("Path: ");
@@ -326,7 +326,7 @@ bool Uploader::uploadLoadCellSnapshot(const String &rfidTag, const LoadCellReadi
     return false;
   }
 
-  String parentPath = "/UsersData/AcceptanceTest/" + rfidTag + "/" + String(epoch);
+  String parentPath = "/UsersData/" + String(USER) + "/" + rfidTag + "/" + String(epoch);
 
   Serial.println("---- Load Cell Upload Attempt ----");
   Serial.print("Path: ");
