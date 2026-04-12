@@ -1,10 +1,6 @@
-// --- IMPORTS ---
-// Importing Firebase tools to connect to your database
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// --- CONFIGURATION ---
-// Your specific Firebase project keys
 const firebaseConfig = {
   apiKey: "AIzaSyCgKeJBId5Ni2kR6hqma8Di08GPwoKtTBk",
   authDomain: "project-cow-database.firebaseapp.com",
@@ -19,8 +15,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// Hardcoded User ID (The owner of the cows)
-const userId = "d7qH2bn6eLVEhkprSDApEc3RdFQ2";
+let userId = "d7qH2bn6eLVEhkprSDApEc3RdFQ2";
 
 // --- DOM ELEMENTS ---
 // Grab references to HTML elements so we can manipulate them
@@ -31,6 +26,8 @@ const graphFieldSelect = document.getElementById("graphField");
 const metricContainer = document.getElementById("metricSelectContainer");
 const applyBtn = document.getElementById("applyFilter");
 const tableBody = document.getElementById("tableBody");
+const setupFormContainer = document.getElementById('setupFormContainer');
+const step1Instructions = document.getElementById('step1Instructions');
 
 // Graph Containers
 const singleGraphContainer = document.getElementById("singleGraphContainer");
@@ -294,4 +291,10 @@ function renderGraphs(labels, temp, hum, meth, co2) {
         charts.push(createSmallChart("chartMeth", "Methane", meth, COLORS.methane));
         charts.push(createSmallChart("chartCo2", "CO₂", co2, COLORS.co2));
     }
+}
+
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.has('uid')) {
+    userIdInput.value = urlParams.get('uid');
+    connectToUserDatabase();
 }
