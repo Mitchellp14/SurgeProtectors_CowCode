@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Cow — WiFi and User Setup</title>
+    <!-- <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> -->
+    <style>
+        :root {
+            --primary: #348C31;
+            --background-color: #F0F2F5;
+            --card-bg: #FFFFFF;
+            --text-main: #282828;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-image: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), url('644895289_dd3eef1f90_o_upscayl_3x_upscayl-standard-4x.png');
+            background-size: 100% auto;
+            background-color: var(--background-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            padding-bottom: 50px;
+        }
+
+        .app-bar {
+            background-color: var(--primary);
+            color: white;
+            padding: 15px 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .app-bar h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 500;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 60px auto 20px auto;
+            padding: 0 15px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            align-items: end;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        select,
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+            background: #fff;
+            box-sizing: border-box;
+            margin-bottom: 20px;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: var(--primary);
+            color: white;
+            font-weight: bold;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 15px;
+        }
+
+        button:hover {
+            background-color: #194218;
+        }
+
+        .tooltip-container {
+            position: relative;
+            display: inline-block;
+            margin-left: 6px;
+            cursor: help;
+        }
+
+        .info-icon {
+            background: #bbb;
+            color: white;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            font-family: serif;
+            transition: background 0.2s;
+        }
+
+        .tooltip-container:hover .info-icon {
+            background: var(--primary);
+        }
+
+        .tooltip-text {
+            visibility: hidden;
+            opacity: 0;
+            width: 200px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 8px 10px;
+
+            position: absolute;
+            z-index: 10;
+            bottom: 135%;
+            left: 50%;
+            margin-left: -100px;
+
+            transition: opacity 0.3s;
+            font-size: 0.8rem;
+            font-weight: normal;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+        }
+
+        .tooltip-container:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-bar">
+        <h1>Project Cow — Setup</h1>
+    </div>
+
+    <div class="container">
+        <div id="notSupportedMsg" style="display:none; margin-bottom:20px;">
+            <div class="card" style="background-color: #fff3f3; border: 1px solid #ffcaca; color: #d93025;">
+                <h3 style="margin-top:0;">Browser or Device capabilities Not Supported</h3>
+                <p style="margin-bottom:0;">You need to use a <b>Chromium Browser</b> on an Android phone or a Desktop
+                    computer with the ability to use "Web Bluetooth".</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 style="margin-top:0; color:var(--primary);">Provision Device</h2>
+            <p id="step1Instructions" style="color:#666; font-size:0.9rem; margin-bottom: 25px;">
+                <b>Step 1:</b> Pair your phone with the ESP32 hardware using Bluetooth.
+            </p>
+
+            <button id="connectBtn">1. Scan & Connect via Bluetooth</button>
+
+            <div id="setupFormContainer" style="display:none;">
+                <p style="color:#666; font-size:0.9rem; margin-bottom: 25px; margin-top: 10px;">
+                    <b>Step 2:</b> Enter the Wi-Fi network the collar should connect to, and the destination User ID.
+                </p>
+
+                <label>Wi-Fi Network Name (SSID)</label>
+                <input type="text" id="ssid" placeholder="e.g. Cow_Network_2.4G">
+                <label>Wi-Fi Password
+                </label>
+                <input type="password" id="password" placeholder="Enter Wi-Fi password">
+                <label>User ID
+                </label>
+                <input type="text" id="userId" placeholder="e.g. d7qH2bn6eLVEhkprSDApEc3RdFQ2">
+                <button id="sendBtn">2. Transmit Configuration</button>
+
+                <!-- <div class="status-box" id="statusText">
+                Connecting...
+            </div> -->
+            </div>
+
+        </div>
+
+        <script>
+            const serviceUuid = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+            const rxUuid = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+            const txUuid = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+            let rxCharacteristic;
+
+            const connectBtn = document.getElementById('connectBtn');
+            const sendBtn = document.getElementById('sendBtn');
+            const statusText = document.getElementById('statusText');
+
+            if (!navigator.bluetooth) { //If the web bluetooth isn't supported by the browser or device
+                document.getElementById('notSupportedMsg').style.display = "block";
+                connectBtn.disabled = true;
+                statusText.innerText = "Feature Unavailable.";
+            }
+
+            connectBtn.addEventListener('click', async () => {
+                try {
+                    statusText.style.display = "block";
+                    statusText.innerText = "Scanning for nearby ESP32 devices...";
+
+                    const device = await navigator.bluetooth.requestDevice({ //Opens the native Android Bluetooth menu (does it show the bluetooth LE devices? even with the filter?)
+                        filters: [{ services: [serviceUuid] }]
+                    });
+
+                    statusText.innerText = "Pairing with ESP32...";
+                    const server = await device.gatt.connect();
+                    const service = await server.getPrimaryService(serviceUuid);
+
+                    rxCharacteristic = await service.getCharacteristic(rxUuid);
+                    const txCharacteristic = await service.getCharacteristic(txUuid);
+
+                    // Listen for messages coming back from the ESP32
+                    await txCharacteristic.startNotifications();
+                    txCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+                        let decoder = new TextDecoder('utf-8');
+                        let message = decoder.decode(event.target.value);
+                        statusText.innerText = "ESP32 Status: " + message;
+
+                        if (message.includes("Success")) {
+                            statusText.style.backgroundColor = "#e6f4ea";
+                            statusText.style.color = "#137333";
+                            statusText.innerText = "Hardware Online. Taking you to the Dashboard...";
+
+                            const uid = document.getElementById('userId').value.trim(); //Puts the User ID to the dashboard (so they don't have to type it again)
+                            setTimeout(() => {
+                                window.location.href = `index.html?uid=${uid}`;
+                            }, 2000);
+                        }
+                    });
+
+                    statusText.innerText = "Bluetooth Connected! Ready to transmit.";
+                    connectBtn.style.display = "none"; // Swaps the buttons
+                    sendBtn.style.display = "block";
+
+                } catch (error) {
+                    statusText.innerText = "Connection Failed: " + error;
+                }
+            });
+ 
+            sendBtn.addEventListener('click', async () => {
+                const ssid = document.getElementById('ssid').value.trim();
+                const password = document.getElementById('password').value.trim();
+                const userId = document.getElementById('userId').value.trim();
+
+                if (!ssid || !password || !userId) {
+                    alert("Please completely fill out all three fields before transmitting.");
+                    return;
+                }
+
+                const payload = `${ssid},${password},${userId}\n`; //SSID,Password,UserID
+
+                let encoder = new TextEncoder('utf-8');
+                let data = encoder.encode(payload);
+
+                try {
+                    await rxCharacteristic.writeValue(data);
+                    statusText.innerText = "Credentials sent! ESP32 is attempting Wi-Fi connection...";
+                    sendBtn.disabled = true;
+                } catch (error) {
+                    statusText.innerText = "Transmission Failed: " + error;
+                }
+            });
+
+        </script>
+
+
+</body>
+
+</html>
