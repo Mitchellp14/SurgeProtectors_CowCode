@@ -268,9 +268,10 @@
 
                 } catch (error) {
                     statusText.innerText = "Connection Failed: " + error;
+                    alert("Bluetooth Error: " + (error.message || error));
                 }
             });
- 
+
             sendBtn.addEventListener('click', async () => {
                 const ssid = document.getElementById('ssid').value.trim();
                 const password = document.getElementById('password').value.trim();
