@@ -263,8 +263,8 @@
                     });
 
                     statusText.innerText = "Bluetooth Connected! Ready to transmit.";
-                    connectBtn.style.display = "none"; // Swaps the buttons
-                    sendBtn.style.display = "block";
+                    connectBtn.style.display = "none"; //hides the button
+                    document.getElementById('setupFormContainer').style.display = "block";
 
                 } catch (error) {
                     statusText.innerText = "Connection Failed: " + error;
