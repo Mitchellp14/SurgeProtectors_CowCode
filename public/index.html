@@ -11,8 +11,8 @@
         
         :root {
             --primary: #348C31;       
-            --background-color: #F0F2F5;      /* Light Grey Background */
-            --card-bg: #FFFFFF;       /* White Card */
+            --background-color: #F0F2F5;
+            --card-bg: #FFFFFF;
             --text-main: #282828;
         }
 
@@ -46,11 +46,11 @@
             padding: 0 15px;
         }
 
-        /* Card Component (Flutter Card Style) */
+        /* Card Component */
         .card {
             background: var(--card-bg);
-            border-radius: 12px; /* Rounded corners */
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08); /* Soft shadow */
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
             padding: 20px;
             margin-bottom: 20px;
         }
@@ -70,14 +70,15 @@
             margin-bottom: 5px;
         }
 
-        select, input[type="date"], button {
+        /* Includes time input from index.html */
+        select, input[type="date"], input[type="time"], input[type="text"], button {
             width: 100%;
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 8px;
             font-size: 1rem;
             background: #fff;
-            box-sizing: border-box; /* Ensures padding doesn't widen element */
+            box-sizing: border-box;
         }
 
         button {
@@ -98,9 +99,9 @@
             width: 100%;
         }
 
-        /* Grid for 4 graphs */
+        /* Grid for multi graphs */
         #multiGraphGrid {
-            display: none; /* Hidden by default */
+            display: none;
             grid-template-columns: 1fr 1fr;
             gap: 15px;
         }
@@ -127,28 +128,24 @@
 
         tr:hover { background-color: #f1f1f1; }
 
-                /* --- ANIMATIONS --- */
-
-        /* 1. Smooth Slide for the Dropdown */
-        /* We animate max-height to make it shrink/grow smoothly */
+        /* --- ANIMATIONS --- */
         .slide-transition {
-            max-height: 100px; /* Open state */
+            max-height: 100px;
             opacity: 1;
-            overflow: hidden; /* Hides content when shrinking */
+            overflow: hidden;
             transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .slide-hidden {
-            max-height: 0;   /* Closed state (shrinks to nothing) */
+            max-height: 0;
             opacity: 0;
-            margin: 0;       /* Removes spacing so button slides over */
+            margin: 0;
             padding: 0;
         }
 
-        /* 2. Fade Effect for Graphs */
         .graph-fade {
             opacity: 0;
-            transform: translateY(10px); /* Moves down slightly */
+            transform: translateY(10px);
             transition: opacity 0.4s ease, transform 0.4s ease;
         }
 
@@ -157,91 +154,78 @@
             transform: translateY(0);
         }
 
-        /* 3. Button Hover Animation (Bounce) */
         #applyFilter {
             transition: transform 0.15s, background-color 0.15s;
         }
         #applyFilter:hover {
-            transform: scale(1.025); /* Grows 5% larger */
+            transform: scale(1.025);
         }
         #applyFilter:active {
-            transform: scale(0.975); /* Shrinks when clicked */
+            transform: scale(0.975);
         }
 
-                /* --- TOOLTIP STYLES --- */
-
-        /* 1. Container: Holds the icon and the hidden text together */
+        /* --- TOOLTIP STYLES --- */
         .tooltip-container {
-            position: relative; /* distinct anchor point for the popup */
+            position: relative;
             display: inline-block;
             margin-left: 6px;
-            cursor: help; /* Changes mouse cursor to a question mark */
+            cursor: help;
         }
 
-        /* 2. The 'i' Icon: A small grey circle */
         .info-icon {
             background: #bbb;
             color: white;
             width: 18px;
             height: 18px;
-            border-radius: 50%; /* Makes it a perfect circle */
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 12px;
             font-weight: bold;
-            font-family: serif; /* Gives it that classic 'i' look */
+            font-family: serif;
             transition: background 0.2s;
         }
 
-        /* Change color when hovered so user knows it's active */
         .tooltip-container:hover .info-icon {
-            background: var(--primary); /* Turns purple on hover */
+            background: var(--primary);
         }
 
-        /* 3. The Popup Text: Hidden by default */
         .tooltip-text {
-            visibility: hidden; /* Invisible */
-            opacity: 0;         /* Transparent */
-            width: 200px;       /* Width of the popup box */
+            visibility: hidden;
+            opacity: 0;
+            width: 200px;
             background-color: #333;
             color: #fff;
             text-align: center;
             border-radius: 6px;
             padding: 8px 10px;
-            
-            /* Positioning: Floats above the icon */
             position: absolute;
             z-index: 10;
-            bottom: 135%;  /* Move it up above the icon */
-            left: 50%;     /* Center align... */
-            margin-left: -100px; /* ...compensate for width to truly center */
-            
-            /* Smooth fade-in animation */
+            bottom: 135%;
+            left: 50%;
+            margin-left: -100px;
             transition: opacity 0.3s;
             font-size: 0.8rem;
             font-weight: normal;
             box-shadow: 0 4px 6px rgba(0,0,0,0.15);
         }
 
-        /* 4. The Trigger: Show text when container is hovered */
         .tooltip-container:hover .tooltip-text {
             visibility: visible;
             opacity: 1;
         }
 
-        /* Optional: Add a tiny arrow pointing down */
         .tooltip-text::after {
             content: "";
             position: absolute;
-            top: 100%; /* At the bottom of the tooltip */
+            top: 100%;
             left: 50%;
             margin-left: -5px;
             border-width: 5px;
             border-style: solid;
             border-color: #333 transparent transparent transparent;
         }
-
     </style>
 </head>
 <body>
@@ -251,7 +235,26 @@
     </div>
 
     <div class="container">
+
+        <!-- User ID / Connect card (from index.html) -->
+        <div class="card">
+            <div class="controls-grid" style="grid-template-columns: 1fr auto;">
+                <div>
+                    <label>User ID
+                        <div class="tooltip-container">
+                            <div class="info-icon">i</div>
+                            <span class="tooltip-text">Enter your Firebase User ID to load that specific portion of the data.</span>
+                        </div>
+                    </label>
+                    <input type="text" id="userIdInput" placeholder="e.g. d7qH2bn6eLVEhkprSDApEc3RdFQ2">
+                </div>
+                <div>
+                    <button id="connectBtn">Connect to Database</button>
+                </div>
+            </div>
+        </div>
         
+        <!-- Filters card -->
         <div class="card">
             <div class="controls-grid">
                 
@@ -277,19 +280,41 @@
                     <input type="date" id="dateFilter">
                 </div>
 
+                <!-- Start/End Time filters (from index.html) -->
+                <div>
+                    <label>Start Time
+                        <div class="tooltip-container">
+                            <div class="info-icon">i</div>
+                            <span class="tooltip-text">Show data recorded AT or AFTER this time.</span>
+                        </div>
+                    </label>
+                    <input type="time" id="startTimeFilter">
+                </div>
+
+                <div>
+                    <label>End Time
+                        <div class="tooltip-container">
+                            <div class="info-icon">i</div>
+                            <span class="tooltip-text">Show data recorded AT or BEFORE this time.</span>
+                        </div>
+                    </label>
+                    <input type="time" id="endTimeFilter">
+                </div>
+
                 <div>
                     <label>View Mode
                         <div class="tooltip-container">
                             <div class="info-icon">i</div>
-                            <span class="tooltip-text">Switch views between a single graph or a view of all 4 metrics.</span>
+                            <span class="tooltip-text">Switch views between a single graph or a view of all metrics.</span>
                         </div>
                     </label>
                     <select id="viewMode">
                         <option value="single">Single Focused Graph</option>
-                        <option value="multi">Dashboard (All 4)</option>
+                        <option value="multi">Dashboard (All Metrics)</option>
                     </select>
                 </div>
 
+                <!-- Metric selector includes feed weight & cattle weight (from index(1).html) -->
                 <div id="metricSelectContainer" class="slide-transition">
                     <label>Graph Metric</label>
                     <select id="graphField">
@@ -297,6 +322,8 @@
                         <option value="humidity">Humidity</option>
                         <option value="methane">Methane</option>
                         <option value="co2">CO₂</option>
+                        <option value="feed weight">Feed Weight</option>
+                        <option value="cattle weight">Cattle Weight</option>
                     </select>
                 </div>
 
@@ -313,17 +340,21 @@
                 <canvas id="mainChart"></canvas>
             </div>
 
+            <!-- Multi-graph grid includes all 6 canvases (from index(1).html) -->
             <div id="multiGraphGrid">
                 <div class="small-graph"><canvas id="chartTemp"></canvas></div>
                 <div class="small-graph"><canvas id="chartHum"></canvas></div>
                 <div class="small-graph"><canvas id="chartMeth"></canvas></div>
                 <div class="small-graph"><canvas id="chartCo2"></canvas></div>
+                <div class="small-graph"><canvas id="chartFeed"></canvas></div>
+                <div class="small-graph"><canvas id="chartCow"></canvas></div>
             </div>
         </div>
 
         <div class="card">
             <h2 style="margin-top:0;">Detailed Logs</h2>
-            <div style="overflow-x: auto;"> <table>
+            <div style="overflow-x: auto;">
+                <table>
                     <thead>
                         <tr>
                             <th>Time</th>
@@ -331,10 +362,13 @@
                             <th>Humidity (%)</th>
                             <th>Methane</th>
                             <th>CO₂</th>
+                            <!-- Extra columns from index(1).html -->
+                            <th>Feed Weight</th>
+                            <th>Cattle Weight</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody">
-                        <tr><td colspan="5">No data loaded.</td></tr>
+                        <tr><td colspan="7">No data loaded.</td></tr>
                     </tbody>
                 </table>
             </div>
