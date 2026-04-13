@@ -1,16 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project Cow — Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
+
     <style>
-        /* --- FLUTTER-STYLE / MATERIAL DESIGN CSS --- */
-        
         :root {
-            --primary: #348C31;       
+            --primary: #348C31;
             --background-color: #F0F2F5;
             --card-bg: #FFFFFF;
             --text-main: #282828;
@@ -32,12 +31,43 @@
             background-color: var(--primary);
             color: white;
             padding: 15px 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             position: sticky;
             top: 0;
             z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .app-bar h1 { margin: 0; font-size: 1.25rem; font-weight: 500; }
+
+        .app-bar h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 500;
+        }
+
+        .header-btn {
+            background-color: white;
+            color: var(--primary);
+            margin: 0;
+            padding: 8px 16px;
+            width: auto;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .header-btn:hover {
+            background-color: #f0f0f0;
+            transform: scale(1.035);
+        }
+
+        .header-btn:active {
+            transform: scale(0.955);
+        }
 
         /* Layout Container */
         .container {
@@ -50,7 +80,7 @@
         .card {
             background: var(--card-bg);
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
             padding: 20px;
             margin-bottom: 20px;
         }
@@ -71,7 +101,11 @@
         }
 
         /* Includes time input from index.html */
-        select, input[type="date"], input[type="time"], input[type="text"], button {
+        select,
+        input[type="date"],
+        input[type="time"],
+        input[type="text"],
+        button {
             width: 100%;
             padding: 10px;
             border: 1px solid #ddd;
@@ -90,7 +124,9 @@
             transition: background 0.2s;
         }
 
-        button:hover { background-color: #194218; }
+        button:hover {
+            background-color: #194218;
+        }
 
         /* Graph Containers */
         .graph-container {
@@ -105,7 +141,10 @@
             grid-template-columns: 1fr 1fr;
             gap: 15px;
         }
-        .small-graph { height: 200px; }
+
+        .small-graph {
+            height: 200px;
+        }
 
         /* Data Table Styling */
         table {
@@ -113,8 +152,9 @@
             border-collapse: collapse;
             margin-top: 10px;
         }
-        
-        th, td {
+
+        th,
+        td {
             text-align: left;
             padding: 12px;
             border-bottom: 1px solid #eee;
@@ -126,7 +166,9 @@
             font-weight: 600;
         }
 
-        tr:hover { background-color: #f1f1f1; }
+        tr:hover {
+            background-color: #f1f1f1;
+        }
 
         /* --- ANIMATIONS --- */
         .slide-transition {
@@ -154,13 +196,15 @@
             transform: translateY(0);
         }
 
-        #applyFilter {
+        #applyFilter, #connectBtn {
             transition: transform 0.15s, background-color 0.15s;
         }
-        #applyFilter:hover {
-            transform: scale(1.025);
+
+        #applyFilter:hover, #connectBtn:hover {
+            transform: scale(1.02);
         }
-        #applyFilter:active {
+
+        #applyFilter:active, #connectBtn:active {
             transform: scale(0.975);
         }
 
@@ -208,7 +252,7 @@
             transition: opacity 0.3s;
             font-size: 0.8rem;
             font-weight: normal;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
         }
 
         .tooltip-container:hover .tooltip-text {
@@ -228,10 +272,12 @@
         }
     </style>
 </head>
+
 <body>
 
     <div class="app-bar">
         <h1>Project Cow — Live Monitor</h1>
+        <button id="applyFilter" onclick="window.location.href='setup.html'" class="header-btn">Setup</button>
     </div>
 
     <div class="container">
@@ -243,7 +289,8 @@
                     <label>User ID
                         <div class="tooltip-container">
                             <div class="info-icon">i</div>
-                            <span class="tooltip-text">Enter your Firebase User ID to load that specific portion of the data.</span>
+                            <span class="tooltip-text">Enter your Firebase User ID to load that specific portion of the
+                                data.</span>
                         </div>
                     </label>
                     <input type="text" id="userIdInput" placeholder="e.g. d7qH2bn6eLVEhkprSDApEc3RdFQ2">
@@ -253,11 +300,11 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Filters card -->
         <div class="card">
             <div class="controls-grid">
-                
+
                 <div>
                     <label>Select Cow (RFID)
                         <div class="tooltip-container">
@@ -305,7 +352,8 @@
                     <label>View Mode
                         <div class="tooltip-container">
                             <div class="info-icon">i</div>
-                            <span class="tooltip-text">Switch views between a single graph or a view of all metrics.</span>
+                            <span class="tooltip-text">Switch views between a single graph or a view of all
+                                metrics.</span>
                         </div>
                     </label>
                     <select id="viewMode">
@@ -335,7 +383,7 @@
 
         <div class="card">
             <h2 style="margin-top:0;">Analytics</h2>
-            
+
             <div id="singleGraphContainer" class="graph-container">
                 <canvas id="mainChart"></canvas>
             </div>
@@ -368,7 +416,9 @@
                         </tr>
                     </thead>
                     <tbody id="tableBody">
-                        <tr><td colspan="7">No data loaded.</td></tr>
+                        <tr>
+                            <td colspan="7">No data loaded.</td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -378,4 +428,5 @@
 
     <script type="module" src="app.js"></script>
 </body>
+
 </html>
