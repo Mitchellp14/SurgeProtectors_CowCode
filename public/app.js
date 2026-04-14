@@ -1,8 +1,6 @@
-// --- IMPORTS ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// --- CONFIGURATION ---
 const firebaseConfig = {
     apiKey: "AIzaSyCgKeJBId5Ni2kR6hqma8Di08GPwoKtTBk",
     authDomain: "project-cow-database.firebaseapp.com",
@@ -16,7 +14,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// --- DOM ELEMENTS ---
 const cowSelect = document.getElementById("cowSelect");
 const dateFilterInput = document.getElementById("dateFilter");
 const startTimeInput = document.getElementById("startTimeFilter");
@@ -31,17 +28,13 @@ const connectBtn = document.getElementById("connectBtn");
 const setupFormContainer = document.getElementById('setupFormContainer');
 const step1Instructions = document.getElementById('step1Instructions');
 
-// Graph Containers
 const singleGraphContainer = document.getElementById("singleGraphContainer");
 const multiGraphGrid = document.getElementById("multiGraphGrid");
 
-// --- STATE VARIABLES ---
 let cachedData = {};
 let charts = [];
 let unsubscribeUser = null; // Holds the active Firebase listener cancellation function
 
-// --- COLOR PALETTE ---
-// Includes feed/cattle weight colors from app(1).js
 const COLORS = {
     temperature: 'rgba(255, 99, 132, 1)',
     humidity: 'rgba(54, 162, 235, 1)',
@@ -85,7 +78,6 @@ viewModeSelect.onchange = () => {
     }, 300);
 };
 
-// --- FUNCTIONS ---
 
 // 1. POPULATE COW SELECTOR
 function populateCowSelector() {
@@ -163,8 +155,21 @@ function updateDashboard() {
         const humidity = entry.humidity ?? "";
         const methane = entry.methane_ppm ?? "";
         const co2 = entry.co2 ?? "";
-        const feedWeight = entry["feed weight"] ?? entry.feedWeight ?? "";
-        const cattleWeight = entry["cattle weight"] ?? entry.cattleWeight ?? "";
+        //these lc#_kg are to do math with, 0-3 are the cow weight thing and 4-7 are the feed weight thing
+        const lc0_kg = entry.lc0_kg ?? "";
+        const lc1_kg = entry.lc1_kg ?? "";
+        const lc2_kg = entry.lc2_kg ?? "";
+        const lc3_kg = entry.lc3_kg ?? "";
+        const lc4_kg = entry.lc4_kg ?? "";
+        const lc5_kg = entry.lc5_kg ?? "";
+        const lc6_kg = entry.lc6_kg ?? "";
+        const lc7_kg = entry.lc7_kg ?? "";
+        //now we do the math to get feed weight and cattle weight
+        const feedWeight = Math.abs(parseFloat(lc4_kg) + parseFloat(lc5_kg) + parseFloat(lc6_kg) + parseFloat(lc7_kg));
+        const cattleWeight = Math.abs(parseFloat(lc0_kg) + parseFloat(lc1_kg) + parseFloat(lc2_kg) + parseFloat(lc3_kg));
+
+        //check for negatives????????
+        
 
         // Table row includes feed/cattle weight columns (from app(1).js)
         tableHtml += `
