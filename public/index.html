@@ -196,15 +196,18 @@
             transform: translateY(0);
         }
 
-        #applyFilter, #connectBtn {
+        #applyFilter,
+        #connectBtn, #setupBtn {
             transition: transform 0.15s, background-color 0.15s;
         }
 
-        #applyFilter:hover, #connectBtn:hover {
+        #applyFilter:hover,
+        #connectBtn:hover, #setupBtn:hover {
             transform: scale(1.02);
         }
 
-        #applyFilter:active, #connectBtn:active {
+        #applyFilter:active,
+        #connectBtn:active, #setupBtn:active {
             transform: scale(0.975);
         }
 
@@ -277,7 +280,7 @@
 
     <div class="app-bar">
         <h1>Project Cow: Live Monitor</h1>
-        <button id="applyFilter" onclick="window.location.href='setup.html'" class="header-btn">Setup</button>
+        <button id="setupBtn" onclick="window.location.href='setup.html'" class="header-btn">Setup</button>
     </div>
 
     <div class="container">
@@ -408,11 +411,11 @@
                             <th>Time</th>
                             <th>Temp (°C)</th>
                             <th>Humidity (%)</th>
-                            <th>Methane</th>
-                            <th>CO₂</th>
+                            <th>Methane (ppm)</th>
+                            <th>CO₂ (ppm)</th>
                             <!-- Extra columns from index(1).html -->
-                            <th>Feed Weight</th>
-                            <th>Cattle Weight</th>
+                            <th>Feed Weight (kg)</th>
+                            <th>Cattle Weight (kg)</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody">
