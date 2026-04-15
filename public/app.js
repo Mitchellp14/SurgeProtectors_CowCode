@@ -250,12 +250,12 @@ function renderGraphs(labels, temp, hum, meth, co2, feedWeight, cattleWeight, da
 
         let dataToShow, colorToShow, labelToShow;
 
-        if (field === "temperature") { dataToShow = temp; colorToShow = COLORS.temperature; labelToShow = "Temperature"; }
-        else if (field === "humidity") { dataToShow = hum; colorToShow = COLORS.humidity; labelToShow = "Humidity"; }
-        else if (field === "methane") { dataToShow = meth; colorToShow = COLORS.methane; labelToShow = "Methane"; }
-        else if (field === "co2") { dataToShow = co2; colorToShow = COLORS.co2; labelToShow = "CO₂"; }
-        else if (field === "feed weight") { dataToShow = feedWeight; colorToShow = COLORS.feedWeight; labelToShow = "Feed Weight"; }
-        else if (field === "cattle weight") { dataToShow = cattleWeight; colorToShow = COLORS.cattleWeight; labelToShow = "Cattle Weight"; }
+        if (field === "temperature") { dataToShow = temp; colorToShow = COLORS.temperature; labelToShow = "Temperature (°C)"; }
+        else if (field === "humidity") { dataToShow = hum; colorToShow = COLORS.humidity; labelToShow = "Humidity (%)"; }
+        else if (field === "methane") { dataToShow = meth; colorToShow = COLORS.methane; labelToShow = "Methane (ppm)"; }
+        else if (field === "co2") { dataToShow = co2; colorToShow = COLORS.co2; labelToShow = "CO₂ (ppm)"; }
+        else if (field === "feed weight") { dataToShow = feedWeight; colorToShow = COLORS.feedWeight; labelToShow = "Feed Weight (kg)"; }
+        else if (field === "cattle weight") { dataToShow = cattleWeight; colorToShow = COLORS.cattleWeight; labelToShow = "Cattle Weight (kg)"; }
 
         const ctx = document.getElementById("mainChart").getContext("2d");
         charts.push(new Chart(ctx, {
@@ -315,12 +315,12 @@ function renderGraphs(labels, temp, hum, meth, co2, feedWeight, cattleWeight, da
             });
         };
 
-        charts.push(createSmallChart("chartTemp", "Temperature", temp, COLORS.temperature));
-        charts.push(createSmallChart("chartHum", "Humidity", hum, COLORS.humidity));
-        charts.push(createSmallChart("chartMeth", "Methane", meth, COLORS.methane));
-        charts.push(createSmallChart("chartCo2", "CO₂", co2, COLORS.co2));
-        charts.push(createSmallChart("chartFeed", "Feed Weight", feedWeight, COLORS.feedWeight));
-        charts.push(createSmallChart("chartCow", "Cattle Weight", cattleWeight, COLORS.cattleWeight));
+        charts.push(createSmallChart("chartTemp", "Temperature (°C)", temp, COLORS.temperature));
+        charts.push(createSmallChart("chartHum", "Humidity (%)", hum, COLORS.humidity));
+        charts.push(createSmallChart("chartMeth", "Methane (ppm)", meth, COLORS.methane));
+        charts.push(createSmallChart("chartCo2", "CO₂ (ppm)", co2, COLORS.co2));
+        charts.push(createSmallChart("chartFeed", "Feed Weight (kg)", feedWeight, COLORS.feedWeight));
+        charts.push(createSmallChart("chartCow", "Cattle Weight (kg)", cattleWeight, COLORS.cattleWeight));
     }
 }
 
