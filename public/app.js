@@ -32,7 +32,7 @@ const singleGraphContainer = document.getElementById("singleGraphContainer");
 const multiGraphGrid = document.getElementById("multiGraphGrid");
 
 let cachedData = {};
-let charts = [];
+let charts = new Array(6).fill(null);
 let unsubscribeUser = null; // Holds the active Firebase listener cancellation function
 
 const COLORS = {
@@ -197,7 +197,7 @@ function updateDashboard() {
 
     tableBody.innerHTML = tableHtml || "<tr><td colspan='7'>No data for this date/time range.</td></tr>";
 
-    // Reverse all arrays so time runs oldest → newest on the chart
+    //Reverse all arrays so time runs oldest → newest on the chart
     chartLabels.reverse();
     dataTemp.reverse();
     dataHum.reverse();
@@ -210,7 +210,7 @@ function updateDashboard() {
     renderGraphs(chartLabels, dataTemp, dataHum, dataMeth, dataCo2, dataFeedWeight, dataCattleWeight, dates);
 }
 
-// 3. DATABASE CONNECTION (dynamic User ID from app.js)
+//Database Connection
 function connectToUserDatabase() {
     let uid = userIdInput.value.trim();
 
@@ -237,8 +237,8 @@ function connectToUserDatabase() {
 
 // 4. RENDER GRAPHS (supports all 6 metrics)
 function renderGraphs(labels, temp, hum, meth, co2, feedWeight, cattleWeight, dates) {
-    charts.forEach(c => c.destroy());
-    charts = [];
+    // charts.forEach(c => c.destroy());
+    // charts = [];
 
     const mode = viewModeSelect.value;
 
@@ -258,69 +258,82 @@ function renderGraphs(labels, temp, hum, meth, co2, feedWeight, cattleWeight, da
         else if (field === "cattle weight") { dataToShow = cattleWeight; colorToShow = COLORS.cattleWeight; labelToShow = "Cattle Weight (kg)"; }
 
         const ctx = document.getElementById("mainChart").getContext("2d");
-        charts.push(new Chart(ctx, {
-            type: "line",
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: labelToShow,
-                    data: dataToShow,
-                    borderColor: colorToShow,
-                    backgroundColor: colorToShow.replace('1)', '0.1)'),
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.3
-                }]
-            },
-            options: {
-                maintainAspectRatio: false,
-                plugins: {
-                    tooltip: {
-                        callbacks: {
-                            // The 'title' callback controls the bold header text on the tooltip hover
-                            title: function (tooltipItems) {
-                                // Find out exactly which dot the user is hovering over
-                                const index = tooltipItems[0].dataIndex;
-                                // Combine the Date from our new array with the Time from the labels array!
-                                return dates[index] + " at " + labels[index];
+        if (charts[0] && charts[0].config.data.datasets[0].label === labelToShow) {
+            charts[0].data.labels = labels;
+            charts[0].data.datasets[0].data = dataToShow;
+            charts[0].update('none'); //skips the animation
+        } else {
+            if (charts[0]) charts[0].destroy();
+            charts[0] = new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: labelToShow,
+                        data: dataToShow,
+                        borderColor: colorToShow,
+                        backgroundColor: colorToShow.replace('1)', '0.1)'),
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                title: function (tooltipItems) {
+                                    const index = tooltipItems[0].dataIndex;
+                                    return dates[index] + " at " + labels[index];
+                                }
                             }
                         }
                     }
                 }
-            }
-        }));
+            });
+        }
+
 
     } else {
         singleGraphContainer.style.display = "none";
         multiGraphGrid.style.display = "grid";
 
-        const createSmallChart = (id, label, data, color) => {
-            const ctx = document.getElementById(id).getContext("2d");
-            return new Chart(ctx, {
-                type: "line",
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: label,
-                        data: data,
-                        borderColor: color,
-                        borderWidth: 2,
-                        pointRadius: 0
-                    }]
-                },
-                options: {
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: true } }
-                }
-            });
-        };
+        const multiConfigs = [
+            { id: "chartTemp", label: "Temperature (°C)", data: temp, color: COLORS.temperature },
+            { id: "chartHum", label: "Humidity (%)", data: hum, color: COLORS.humidity },
+            { id: "chartMeth", label: "Methane (ppm)", data: meth, color: COLORS.methane },
+            { id: "chartCo2", label: "CO₂ (ppm)", data: co2, color: COLORS.co2 },
+            { id: "chartFeed", label: "Feed Weight (kg)", data: feedWeight, color: COLORS.feedWeight },
+            { id: "chartCow", label: "Cattle Weight (kg)", data: cattleWeight, color: COLORS.cattleWeight },
+        ];
 
-        charts.push(createSmallChart("chartTemp", "Temperature (°C)", temp, COLORS.temperature));
-        charts.push(createSmallChart("chartHum", "Humidity (%)", hum, COLORS.humidity));
-        charts.push(createSmallChart("chartMeth", "Methane (ppm)", meth, COLORS.methane));
-        charts.push(createSmallChart("chartCo2", "CO₂ (ppm)", co2, COLORS.co2));
-        charts.push(createSmallChart("chartFeed", "Feed Weight (kg)", feedWeight, COLORS.feedWeight));
-        charts.push(createSmallChart("chartCow", "Cattle Weight (kg)", cattleWeight, COLORS.cattleWeight));
+        multiConfigs.forEach((cfg, i) => {
+            if (charts[i]) {
+                charts[i].data.labels = labels;
+                charts[i].data.datasets[0].data = cfg.data;
+                charts[i].update('none');
+            } else {
+                const ctx = document.getElementById(cfg.id).getContext("2d");
+                charts[i] = new Chart(ctx, {
+                    type: "line",
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: cfg.label,
+                            data: cfg.data,
+                            borderColor: cfg.color,
+                            borderWidth: 2,
+                            pointRadius: 0
+                        }]
+                    },
+                    options: {
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: true } }
+                    }
+                });
+            }
+        });
     }
 }
 
