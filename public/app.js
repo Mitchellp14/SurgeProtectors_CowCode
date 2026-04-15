@@ -114,13 +114,14 @@ function updateDashboard() {
     const timestampsObj = cachedData[selectedCow];
     let sortedTimes = Object.keys(timestampsObj).sort((a, b) => b - a);
 
+    let dates = [];
     let chartLabels = [];
     let dataTemp = [];
     let dataHum = [];
     let dataMeth = [];
     let dataCo2 = [];
-    let dataFeedWeight = [];    // From app(1).js
-    let dataCattleWeight = [];  // From app(1).js
+    let dataFeedWeight = [];
+    let dataCattleWeight = [];
 
     let tableHtml = "";
 
@@ -129,11 +130,12 @@ function updateDashboard() {
 
         const dateObj = new Date(ts * 1000);
 
-        // Build date string in local time (from app.js, more reliable than toISOString)
+
         const year = dateObj.getFullYear();
         const month = String(dateObj.getMonth() + 1).padStart(2, '0');
         const day = String(dateObj.getDate()).padStart(2, '0');
         const dateString = `${year}-${month}-${day}`;
+        dates.push(dateString);
         const timeString = dateObj.toLocaleTimeString();
 
         // 24-hr time string for filtering
@@ -169,7 +171,7 @@ function updateDashboard() {
         const cattleWeight = Math.abs(parseFloat(lc0_kg) + parseFloat(lc1_kg) + parseFloat(lc2_kg) + parseFloat(lc3_kg));
 
         //check for negatives????????
-        
+
 
         // Table row includes feed/cattle weight columns (from app(1).js)
         tableHtml += `
@@ -203,8 +205,9 @@ function updateDashboard() {
     dataCo2.reverse();
     dataFeedWeight.reverse();
     dataCattleWeight.reverse();
+    dates.reverse();
 
-    renderGraphs(chartLabels, dataTemp, dataHum, dataMeth, dataCo2, dataFeedWeight, dataCattleWeight);
+    renderGraphs(chartLabels, dataTemp, dataHum, dataMeth, dataCo2, dataFeedWeight, dataCattleWeight, dates);
 }
 
 // 3. DATABASE CONNECTION (dynamic User ID from app.js)
@@ -233,7 +236,7 @@ function connectToUserDatabase() {
 }
 
 // 4. RENDER GRAPHS (supports all 6 metrics)
-function renderGraphs(labels, temp, hum, meth, co2, feedWeight, cattleWeight) {
+function renderGraphs(labels, temp, hum, meth, co2, feedWeight, cattleWeight, dates) {
     charts.forEach(c => c.destroy());
     charts = [];
 
