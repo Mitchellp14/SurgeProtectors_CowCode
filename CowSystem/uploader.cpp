@@ -14,6 +14,10 @@
 #include <FirebaseClient.h>
 #include <ArduinoJson.h>
 #include "time.h"
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 
 // --- WiFi & Firebase credentials ---
 #define WIFI_SSID "CapstoneWifi2" //CHANGE IF NEEDED!!!
@@ -23,6 +27,15 @@
 #define DATABASE_URL "https://project-cow-database-default-rtdb.firebaseio.com/"
 #define USER_EMAIL "Avpe9860@colorado.edu"
 #define USER_PASS "Little11Forest12!" //Please do not copy i am trusting you all so much :D
+#define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
+static BLECharacteristic *pTxCharacteristic;
+static String bleSSID = "";
+static String blePassword = "";
+static String bleUserId = "";
+static bool credentialsReceived = false;
 
 static const char* ntpServer = "pool.ntp.org";
 
@@ -79,31 +92,133 @@ void processData(AsyncResult &aResult) {
 
 //Added
 
-void Uploader::initWiFi() {
-  Serial.println("---- WiFi Init ----");
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  Serial.print("Connecting to WiFi");
-
-  int retry = 0;
-
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(500);
-    retry++;
-
-    if (retry > 40) {   // ~20 seconds
-      Serial.println("\nWiFi FAILED to connect!");
-      return;
+class MyServerCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer *pServer) {
+        Serial.println("Phone connected to ESP32 via BLE.");
     }
-  }
+    void onDisconnect(BLEServer *pServer) {
+        pServer->startAdvertising();
+        Serial.println("Phone disconnected. Advertising again.");
+    }
+};
 
-  Serial.println("\nWiFi connected!");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+class MyCallbacks : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+        String rxValue = pCharacteristic->getValue();
+        if (rxValue.length() > 0) {
+            int firstComma = rxValue.indexOf(',');
+            int secondComma = rxValue.indexOf(',', firstComma + 1);
+
+            if (firstComma != -1 && secondComma != -1) {
+                bleSSID     = rxValue.substring(0, firstComma);
+                blePassword = rxValue.substring(firstComma + 1, secondComma);
+                bleUserId   = rxValue.substring(secondComma + 1);
+                bleSSID.trim();
+                blePassword.trim();
+                bleUserId.trim();
+
+                credentialsReceived = true;
+
+                pTxCharacteristic->setValue("Credentials received. Connecting...");
+                pTxCharacteristic->notify();
+
+                Serial.println("BLE credentials received.");
+                Serial.println("SSID: " + bleSSID);
+                Serial.println("UserID: " + bleUserId);
+            } else {
+                pTxCharacteristic->setValue("Bad format. Use: SSID,Password,UserID");
+                pTxCharacteristic->notify();
+            }
+        }
+    }
+};
+
+void Uploader::initBLE() {
+    Serial.println("_____BLE Init_____");
+    BLEDevice::init("ESP32_C6_Collar");
+
+    BLEServer *pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+
+    BLEService *pService = pServer->createService(SERVICE_UUID);
+
+    pTxCharacteristic = pService->createCharacteristic(
+        CHARACTERISTIC_UUID_TX,
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
+    pTxCharacteristic->addDescriptor(new BLE2902());
+
+    BLECharacteristic *pRxCharacteristic = pService->createCharacteristic(
+        CHARACTERISTIC_UUID_RX,
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    pRxCharacteristic->setCallbacks(new MyCallbacks());
+
+    pService->start();
+    pServer->getAdvertising()->start();
+    Serial.println("BLE started. Waiting for credentials from phone...");
 }
+
+void Uploader::initWiFi() {
+    Serial.println("______WiFi Init______");
+
+    // Wait for credentials to arrive over BLE
+    while (!credentialsReceived) {
+        delay(100);
+    }
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(bleSSID.c_str(), blePassword.c_str());
+
+    Serial.print("Connecting to WiFi");
+    int retry = 0;
+    while (WiFi.status() != WL_CONNECTED) {
+        Serial.print(".");
+        delay(500);
+        retry++;
+        if (retry > 40) {
+            Serial.println("\nWiFi FAILED to connect!");
+            pTxCharacteristic->setValue("Failed to connect. Check credentials.");
+            pTxCharacteristic->notify();
+            return;
+        }
+    }
+
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    String successMsg = "Success! IP: " + WiFi.localIP().toString();
+    pTxCharacteristic->setValue(successMsg.c_str());
+    pTxCharacteristic->notify();
+}
+
+
+// void Uploader::initWiFi() {
+//   Serial.println("---- WiFi Init ----");
+
+//   WiFi.mode(WIFI_STA);
+//   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+//   Serial.print("Connecting to WiFi");
+
+//   int retry = 0;
+
+//   while (WiFi.status() != WL_CONNECTED) {
+//     Serial.print(".");
+//     delay(500);
+//     retry++;
+
+//     if (retry > 40) {   // ~20 seconds
+//       Serial.println("\nWiFi FAILED to connect!");
+//       return;
+//     }
+//   }
+
+//   Serial.println("\nWiFi connected!");
+//   Serial.print("IP address: ");
+//   Serial.println(WiFi.localIP());
+// }
 
 // void Uploader::begin() {
 //   initWiFi();
@@ -151,6 +266,9 @@ void Uploader::initWiFi() {
 
 void Uploader::begin() {
   Serial.println("---- Uploader Begin ----");
+  // initWiFi();
+
+  initBLE();   
   initWiFi();
 
   Serial.println("Starting NTP sync...");
