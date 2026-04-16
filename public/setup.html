@@ -100,6 +100,29 @@
             background-color: #194218;
         }
 
+        .header-btn {
+            background-color: white;
+            color: var(--primary);
+            margin: 0;
+            padding: 8px 16px;
+            width: auto;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .header-btn:hover {
+            background-color: #f0f0f0;
+            transform: scale(1.035);
+        }
+
+        .header-btn:active {
+            transform: scale(0.955);
+        }
+
         .tooltip-container {
             position: relative;
             display: inline-block;
@@ -167,15 +190,21 @@
 </head>
 
 <body>
-    <div class="app-bar">
+    <!-- <div class="app-bar">
         <h1>Project Cow: Setup</h1>
+    </div> -->
+
+    <div class="app-bar" style="display: flex; justify-content: space-between; align-items: center;">
+        <h1 style="margin:0;">Project Cow: Setup</h1>
+        <button onclick="window.location.href='index.html'" class="header-btn">Dashboard</button>
     </div>
 
     <div class="container">
         <div id="notSupportedMsg" style="display:none; margin-bottom:20px;">
             <div class="card" style="background-color: #fff3f3; border: 1px solid #ffcaca; color: #d93025;">
                 <h3 style="margin-top:0;">Browser or Device capabilities Not Supported</h3>
-                <p style="margin-bottom:0;">You need to use a <b>Chromium Browser (Google Chrome, Microsoft Edge, Vivaldi, etc.)</b> on an Android phone or a Desktop
+                <p style="margin-bottom:0;">You need to use a <b>Chromium Browser (Google Chrome, Microsoft Edge,
+                        Vivaldi, etc.)</b> on an Android phone or a Desktop
                     Computer with the ability to use "Web Bluetooth".</p>
             </div>
         </div>
@@ -204,7 +233,7 @@
                 <button id="sendBtn">Transmit Configuration</button>
 
                 <div class="status-box" id="statusText">
-                    
+
                 </div>
             </div>
 
