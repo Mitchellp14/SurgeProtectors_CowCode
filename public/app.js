@@ -167,8 +167,8 @@ function updateDashboard() {
         const lc6_kg = entry.lc6_kg ?? "";
         const lc7_kg = entry.lc7_kg ?? "";
         //now we do the math to get feed weight and cattle weight
-        const feedWeight = Math.abs(parseFloat(lc4_kg) + parseFloat(lc5_kg) + parseFloat(lc6_kg) + parseFloat(lc7_kg));
-        const cattleWeight = Math.abs(parseFloat(lc0_kg) + parseFloat(lc1_kg) + parseFloat(lc2_kg) + parseFloat(lc3_kg));
+        const feedWeight = Math.round(Math.abs(parseFloat(lc4_kg) + parseFloat(lc5_kg) + parseFloat(lc6_kg) + parseFloat(lc7_kg)) * 1000) / 1000;
+        const cattleWeight = Math.round(Math.abs(parseFloat(lc0_kg) + parseFloat(lc1_kg) + parseFloat(lc2_kg) + parseFloat(lc3_kg)) * 1000) / 1000;
 
         //check for negatives????????
 
