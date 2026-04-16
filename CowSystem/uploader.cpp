@@ -162,7 +162,7 @@ void Uploader::initBLE() {
 void Uploader::initWiFi() {
     Serial.println("______WiFi Init______");
 
-    // Wait for credentials to arrive over BLE
+
     while (!credentialsReceived) {
         delay(100);
     }
