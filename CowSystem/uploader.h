@@ -15,6 +15,8 @@ public:
   // Keep Firebase state machine running (call every loop)
   void tick();
 
+  void initBLE();
+
   // True once Firebase auth/connection is ready to send
   bool ready() const;
 

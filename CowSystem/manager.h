@@ -27,7 +27,7 @@ private:
   bool active = false;
 
   uint32_t startMs = 0;
-  uint32_t durationMs = 20000;
+  uint32_t durationMs = 120000;
 
   uint32_t intervalMs = 5000;
   uint32_t lastUploadMs = 0;

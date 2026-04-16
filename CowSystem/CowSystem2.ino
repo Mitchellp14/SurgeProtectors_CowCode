@@ -20,7 +20,7 @@ static const int INIR_RX_PIN    = 16;
 static const int INIR_TX_PIN    = 17;
 static const int I2C_SDA        = 6;
 static const int I2C_SCL        = 7;
-static const float VREF_MV      = 4800.0f;
+static const float VREF_MV      = 5000.0f;
 
 // --- CS pins (must match AD7190.h) ---
 // Bus A (FSPI, SCK=IO15, MOSI=IO22, MISO=IO23): IO2=ADC1, IO3=ADC2
@@ -163,34 +163,66 @@ void loop() {
 
     static uint32_t lastRaw[8] = {0};
 
+    // ── Partner mirroring for split-platform scales (Bus A only) ─────────
+    // ch0+1 and ch2+3 are two halves of the same physical scale.
+    // If one ADC has a pending retare (valid=false), mirror the good half's
+    // kg readings into the invalid half so the upload still reflects total
+    // weight. The mirrored channel is marked valid=false so the database
+    // can distinguish real from estimated data.
+    //
+    // If BOTH halves are invalid, no mirroring — upload both as invalid.
+    bool adc1Pending = adcs.isRetarePending(AD7190_ADC1);
+    bool adc2Pending = adcs.isRetarePending(AD7190_ADC2);
+
+    if (adc1Pending && !adc2Pending) {
+      // ADC1 (ch0,1) recovering — mirror ADC2 (ch2,3) into it
+      Serial.println("[LOAD] ADC1 pending retare — mirroring ch2/3 into ch0/1");
+      results[0].kg = results[2].kg;
+      results[1].kg = results[3].kg;
+      // valid stays false — database knows these are mirrored estimates
+    } else if (adc2Pending && !adc1Pending) {
+      // ADC2 (ch2,3) recovering — mirror ADC1 (ch0,1) into it
+      Serial.println("[LOAD] ADC2 pending retare — mirroring ch0/1 into ch2/3");
+      results[2].kg = results[0].kg;
+      results[3].kg = results[1].kg;
+    }
+    // If both pending: leave both invalid, no mirroring
+
     for (int i = 0; i < 8; i++) {
-      // Log when a channel value is unchanged — actual recovery is handled
-      // inside the driver via the midscale frozen detector in readChannel()
       if (results[i].valid && results[i].raw == lastRaw[i]) {
         Serial.printf("[WARN] Channel %d unchanged at 0x%06lX\n", i, results[i].raw);
       }
       lastRaw[i] = results[i].raw;
 
-      // Cache latest reading
       latestLoad.valid[i]   = results[i].valid;
       latestLoad.raw[i]     = results[i].raw;
       latestLoad.voltage[i] = results[i].voltage;
       latestLoad.kg[i]      = results[i].kg;
     }
 
-    // Print kg readings for all 8 channels
+    // Print — show (MIRROR) for invalid channels that have been mirrored
     Serial.print("[LOAD]");
     for (int i = 0; i < 8; i++) {
-      if (results[i].valid) {
-        Serial.printf(" ch%d=%.3fkg", i, results[i].kg);
+      if (!results[i].valid) {
+        bool mirrored = (i < 4) &&
+                        ((i < 2 && adc1Pending && !adc2Pending) ||
+                         (i >= 2 && adc2Pending && !adc1Pending));
+        if (mirrored) {
+          Serial.printf(" ch%d=%.3fkg(MIRROR)", i, results[i].kg);
+        } else {
+          Serial.printf(" ch%d=INVALID", i);
+        }
       } else {
-        Serial.printf(" ch%d=INVALID", i);
+        Serial.printf(" ch%d=%.3fkg", i, results[i].kg);
       }
     }
     Serial.println();
 
     latestLoad.last_ms = now;
   }
+
+  // --- Check if any deferred retare can now proceed ---
+  adcs.checkDeferredRetare();
 
   // --- Load cell upload (slow, separate from read) ---
   if (due(tLoadUpload, now)) {

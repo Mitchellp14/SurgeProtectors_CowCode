@@ -27,16 +27,17 @@
 #define DATABASE_URL "https://project-cow-database-default-rtdb.firebaseio.com/"
 #define USER_EMAIL "Avpe9860@colorado.edu"
 #define USER_PASS "Little11Forest12!" //Please do not copy i am trusting you all so much :D
+#define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
+static BLECharacteristic *pTxCharacteristic;
+static String bleSSID = "";
+static String blePassword = "";
+static String bleUserId = "";
+static bool credentialsReceived = false;
 
 static const char* ntpServer = "pool.ntp.org";
-
-String currentSSID = "";
-String currentPassword = "";
-String currentUserID = "";
-
-#define SERVICE_UUID "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-#define CHARACTERISTIC_UUID_RX "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
-#define CHARACTERISTIC_UUID_TX "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
 
 // Firebase objects kept local to this translation unit (so nothing else can touch them directly)
 static UserAuth user_auth(Web_API_KEY, USER_EMAIL, USER_PASS);
@@ -46,73 +47,21 @@ using AsyncClient = AsyncClientClass;
 static AsyncClient aClient(ssl_client);
 static RealtimeDatabase Database;
 
-// #define USER "AcceptanceTest" // CHANGE THIS TO YOUR USERNAME OR WHATEVER YOU WANT!!!
+//static object_t jsonData, obj1, obj2, obj3, obj4, obj5, obj6, obj7, obj8;
+//static JsonWriter writer;
 
 static bool uploadPending = false;
 static uint32_t lastUploadDone = 0;
 static const uint32_t MIN_UPLOAD_GAP_MS = 200;
-
-class MyCallbacks : public BLECharacteristicCallbacks
-{
-
-  void onWrite(BLECharacteristic *pCharacteristic)
-  {
-    std::string rxValue = pCharacteristic->getValue();
-
-    if (rxValue.length() > 0)
-    {
-
-      String payload = String(rxValue.c_str());
-
-      payload.trim();
-
-      int firstComma = payload.indexOf(',');
-      int secondComma = payload.indexOf(',', firstComma + 1);
-
-      if (firstComma > 0 && secondComma > firstComma)
-      {
-
-        currentSSID = payload.substring(0, firstComma);
-        currentPassword = payload.substring(firstComma + 1, secondComma);
-        currentUserID = payload.substring(secondComma + 1);
-
-        Serial.println("Received SSID: " + currentSSID);
-        Serial.println("Received Password: " + currentPassword);
-        Serial.println("Received UserID: " + currentUserID);
-      }
-    }
-  }
-};
-
-void setupBLE()
-{
-  BLEDevice::init("ProjectCow_ESP32");
-
-  BLEServer *pServer = BLEDevice::createServer();
-
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-
-  BLECharacteristic *pTxCharacteristic = pService->createCharacteristic(
-      CHARACTERISTIC_UUID_TX,
-      BLECharacteristic::PROPERTY_NOTIFY);
-
-  pTxCharacteristic->addDescriptor(new BLE2902());
-
-  BLECharacteristic *pRxCharacteristic = pService->createCharacteristic(
-      CHARACTERISTIC_UUID_RX,
-      BLECharacteristic::PROPERTY_WRITE);
-
-  pRxCharacteristic->setCallbacks(new MyCallbacks());
-
-  pService->start();
-
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  BLEDevice::startAdvertising();
-
-  Serial.println("BLE Started. Waiting for Web Browser connection...");
-}
+// void Uploader::initWiFi() {
+//   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+//   Serial.print("Connecting to WiFi ..");
+//   while (WiFi.status() != WL_CONNECTED) {
+//     Serial.print('.');
+//     delay(500);
+//   }
+//   Serial.println("Connected!");
+// }
 
 // upload pending?
 bool Uploader::isUploadPending() const {
@@ -143,44 +92,183 @@ void processData(AsyncResult &aResult) {
 
 //Added
 
-void Uploader::initWiFi() {
-  Serial.println("---- WiFi Init ----");
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  Serial.print("Connecting to WiFi");
-
-  int retry = 0;
-
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(500);
-    retry++;
-
-    if (retry > 40) {   // ~20 seconds
-      Serial.println("\nWiFi FAILED to connect!");
-      return;
+class MyServerCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer *pServer) {
+        Serial.println("Phone connected to ESP32 via BLE.");
     }
-  }
+    void onDisconnect(BLEServer *pServer) {
+        pServer->startAdvertising();
+        Serial.println("Phone disconnected. Advertising again.");
+    }
+};
 
-  Serial.println("\nWiFi connected!");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+class MyCallbacks : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+        String rxValue = pCharacteristic->getValue();
+        if (rxValue.length() > 0) {
+            int firstComma = rxValue.indexOf(',');
+            int secondComma = rxValue.indexOf(',', firstComma + 1);
+
+            if (firstComma != -1 && secondComma != -1) {
+                bleSSID     = rxValue.substring(0, firstComma);
+                blePassword = rxValue.substring(firstComma + 1, secondComma);
+                bleUserId   = rxValue.substring(secondComma + 1);
+                bleSSID.trim();
+                blePassword.trim();
+                bleUserId.trim();
+
+                credentialsReceived = true;
+
+                pTxCharacteristic->setValue("Credentials received. Connecting...");
+                pTxCharacteristic->notify();
+
+                Serial.println("BLE credentials received.");
+                Serial.println("SSID: " + bleSSID);
+                Serial.println("UserID: " + bleUserId);
+            } else {
+                pTxCharacteristic->setValue("Bad format. Use: SSID,Password,UserID");
+                pTxCharacteristic->notify();
+            }
+        }
+    }
+};
+
+void Uploader::initBLE() {
+    Serial.println("_____BLE Init_____");
+    BLEDevice::init("ESP32_C6_Collar");
+
+    BLEServer *pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+
+    BLEService *pService = pServer->createService(SERVICE_UUID);
+
+    pTxCharacteristic = pService->createCharacteristic(
+        CHARACTERISTIC_UUID_TX,
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
+    pTxCharacteristic->addDescriptor(new BLE2902());
+
+    BLECharacteristic *pRxCharacteristic = pService->createCharacteristic(
+        CHARACTERISTIC_UUID_RX,
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    pRxCharacteristic->setCallbacks(new MyCallbacks());
+
+    pService->start();
+    pServer->getAdvertising()->start();
+    Serial.println("BLE started. Waiting for credentials from phone...");
 }
+
+void Uploader::initWiFi() {
+    Serial.println("______WiFi Init______");
+
+
+    while (!credentialsReceived) {
+        delay(100);
+    }
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(bleSSID.c_str(), blePassword.c_str());
+
+    Serial.print("Connecting to WiFi");
+    int retry = 0;
+    while (WiFi.status() != WL_CONNECTED) {
+        Serial.print(".");
+        delay(500);
+        retry++;
+        if (retry > 40) {
+            Serial.println("\nWiFi FAILED to connect!");
+            pTxCharacteristic->setValue("Failed to connect. Check credentials.");
+            pTxCharacteristic->notify();
+            return;
+        }
+    }
+
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    String successMsg = "Success! IP: " + WiFi.localIP().toString();
+    pTxCharacteristic->setValue(successMsg.c_str());
+    pTxCharacteristic->notify();
+}
+
+
+// void Uploader::initWiFi() {
+//   Serial.println("---- WiFi Init ----");
+
+//   WiFi.mode(WIFI_STA);
+//   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+//   Serial.print("Connecting to WiFi");
+
+//   int retry = 0;
+
+//   while (WiFi.status() != WL_CONNECTED) {
+//     Serial.print(".");
+//     delay(500);
+//     retry++;
+
+//     if (retry > 40) {   // ~20 seconds
+//       Serial.println("\nWiFi FAILED to connect!");
+//       return;
+//     }
+//   }
+
+//   Serial.println("\nWiFi connected!");
+//   Serial.print("IP address: ");
+//   Serial.println(WiFi.localIP());
+// }
+
+// void Uploader::begin() {
+//   initWiFi();
+//   configTime(0, 0, ntpServer);
+
+//   ssl_client.setInsecure();
+//   ssl_client.setConnectionTimeout(1000);
+//   ssl_client.setHandshakeTimeout(5);
+
+//   initializeApp(aClient, app, getAuth(user_auth), nullptr, "authTask");
+//   app.getApp<RealtimeDatabase>(Database);
+//   Database.url(DATABASE_URL);
+
+//   Serial.println("Uploader initialized (WiFi + NTP + Firebase).");
+// }
+
+//void Uploader::begin() {
+//
+//  Serial.println("---- Uploader Begin ----");
+//
+//  initWiFi();
+//
+//  Serial.println("Starting NTP sync...");
+//  configTime(0, 0, ntpServer);
+//
+//  delay(2000);
+//
+//  time_t now = time(nullptr);
+//  Serial.print("Epoch after NTP sync attempt: ");
+//  Serial.println((uint32_t)now);
+//
+//  ssl_client.setInsecure();
+//  ssl_client.setConnectionTimeout(1000);
+//  ssl_client.setHandshakeTimeout(5);
+//
+//  Serial.println("Initializing Firebase...");
+//
+//  initializeApp(aClient, app, getAuth(user_auth), nullptr, "authTask");
+//
+//  app.getApp<RealtimeDatabase>(Database);
+//  Database.url(DATABASE_URL);
+//
+//  Serial.println("Firebase initialized.");
+//}
 
 void Uploader::begin() {
   Serial.println("---- Uploader Begin ----");
-  setupBLE();
+  // initWiFi();
 
-  Serial.println("Waiting for credentials from Web Bluetooth...");
-  while (currentSSID == "" || currentPassword == "" || currentUserID == "")
-  {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("\nCredentials received! Starting Wi-Fi...");
+  initBLE();   
   initWiFi();
 
   Serial.println("Starting NTP sync...");
@@ -221,15 +309,36 @@ void Uploader::begin() {
   Serial.println("\nFirebase ready!");
 }
 
+ //void Uploader::tick() {
+ //  // Keep Firebase background state machine moving
+ //  app.loop();
+ //}
+
 void Uploader::tick() {
 
   app.loop();
 
+  //static uint32_t lastPrint = 0;
+
+  // if (millis() - lastPrint > 5000) { //Prints if firebase is ready every 5 seconds. Annoying!!!
+  //   lastPrint = millis();
+
+  //   Serial.print("Firebase ready: ");
+  //   Serial.println(app.ready());
+  // }
 }
 
 bool Uploader::ready() const {
   return app.ready();
 }
+
+// uint32_t Uploader::epochNow() {
+//   time_t now;
+//   struct tm timeinfo;
+//   if (!getLocalTime(&timeinfo)) return 0;
+//   time(&now);
+//   return (uint32_t)now;
+// }
 
 uint32_t Uploader::epochNow() {
 
@@ -269,7 +378,7 @@ bool Uploader::uploadGasSnapshot(const String &rfidTag, const GasReading &gas, u
     return false;
   }
 
-  String parentPath = "/UsersData/" + currentUserID + "/" + rfidTag + "/" + String(epoch);
+  String parentPath = "/UsersData/DepartmentExpo/" + rfidTag + "/" + String(epoch);
 
   Serial.println("---- Upload Attempt ----");
   Serial.print("Path: ");
@@ -332,7 +441,7 @@ bool Uploader::uploadLoadCellSnapshot(const String &rfidTag, const LoadCellReadi
     return false;
   }
  
-  String parentPath = "/UsersData/" + currentUserID + "/" + rfidTag + "/" + String(epoch);
+  String parentPath = "/UsersData/DepartmentExpo/" + rfidTag + "/" + String(epoch);
  
   Serial.println("---- Load Cell Upload Attempt ----");
   Serial.print("Path: ");

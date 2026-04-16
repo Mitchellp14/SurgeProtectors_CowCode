@@ -2,15 +2,28 @@
  * AD7190.h
  * Driver for 4x AD7190 24-bit Sigma-Delta ADCs on ESP32-C6-Mini
  *
- * Hardware layout:
- *   SPI:  DIN=IO22 (MOSI), DOUT=IO23 (MISO), SCLK=IO19
- *   CS1=IO5 (Weigh System 1, ADC1), CS2=IO1 (Weigh System 1, ADC2)
- *   CS3=IO3 (Weigh System 2, ADC3), CS4=IO2 (Weigh System 2, ADC4)
+ * Hardware layout — DUAL SPI BUS:
+ *
+ *   Bus A (FSPI hardware): MOSI=IO22, MISO=IO23, SCLK=IO15
+ *     CS1=IO2 (ADC1), CS2=IO3 (ADC2)
+ *
+ *   Bus B (bit-bang):      MOSI=IO20, MISO=IO21, SCLK=IO19
+ *     CS3=IO1 (ADC3), CS4=IO5 (ADC4)
+ *
+ * Note on Bus B: The ESP32-C6 Arduino core only reliably supports one
+ * hardware SPI peripheral (FSPI / peripheral 0). SPIClass(1) does not
+ * function correctly on this chip. Bus B is therefore implemented as
+ * software bit-bang SPI (Mode 3: CPOL=1, CPHA=1, MSB first).
+ *
+ * Bus safety: All multi-step ADC operations (reset, read, recover) hold the
+ * hardware SPI transaction open continuously from csSelect to csDeselect.
+ * This prevents any gap on MISO between the comm byte and data bytes where
+ * a second ADC on the same bus could briefly drive the line.
  *
  * Each ADC has 2 load cells:
  *   Load cell 1: AIN1+/AIN2-  with REFIN2+/REFIN2-
  *   Load cell 2: AIN3+/AIN4-  with REFIN1+/REFIN1-
- *   BPDSW (GPOCON) closes the bridge power-down switch to AGND for excitation ground return
+ *   BPDSW (GPOCON) closes the bridge power-down switch to AGND
  *
  * Settings: SINC4, CHOP enabled, Gain=128, ~50 Hz output data rate
  */
@@ -19,244 +32,263 @@
 #include <Arduino.h>
 #include <SPI.h>
 
-// ─── SPI Pin Definitions ──────────────────────────────────────────────────────
-#define AD7190_PIN_MOSI   22
-#define AD7190_PIN_MISO   23
-#define AD7190_PIN_SCK    19
+// ─── SPI Bus A Pin Definitions (ADC1 & ADC2 — hardware FSPI) ─────────────────
+#define AD7190_BUSA_MOSI   22
+#define AD7190_BUSA_MISO   23
+#define AD7190_BUSA_SCK    15
+
+// ─── SPI Bus B Pin Definitions (ADC3 & ADC4 — bit-bang) ──────────────────────
+#define AD7190_BUSB_MOSI   20
+#define AD7190_BUSB_MISO   21
+#define AD7190_BUSB_SCK    19
 
 // ─── Chip Select Pins ─────────────────────────────────────────────────────────
-#define AD7190_CS1        5    // Weigh System 1 – ADC 1
-#define AD7190_CS2        1    // Weigh System 1 – ADC 2
-#define AD7190_CS3        3    // Weigh System 2 – ADC 3
-#define AD7190_CS4        2    // Weigh System 2 – ADC 4
+#define AD7190_CS1         2    // Bus A – ADC1
+#define AD7190_CS2         3    // Bus A – ADC2
+#define AD7190_CS3         1    // Bus B – ADC3
+#define AD7190_CS4         5    // Bus B – ADC4
 
-#define AD7190_NUM_ADCS   4
-#define AD7190_CHANNELS_PER_ADC 2
+#define AD7190_NUM_ADCS          4
+#define AD7190_CHANNELS_PER_ADC  2
 
 // ─── SPI Settings ─────────────────────────────────────────────────────────────
-// AD7190: SPI Mode 3 (CPOL=1, CPHA=1), MSB first, max ~5 MHz
-#define AD7190_SPI_FREQ   2000000UL  // 2 MHz – conservative for wiring
-#define AD7190_SPI_MODE   SPI_MODE3
+#define AD7190_SPI_FREQ          100000UL
+#define AD7190_SPI_MODE          SPI_MODE3
+// Bit-bang half-period: 1 / (2 × 100 kHz) = 5 µs
+#define AD7190_BB_HALF_PERIOD_US 5
 
 // ─── Register Addresses ───────────────────────────────────────────────────────
-#define AD7190_REG_COMM        0x00   // Communications  (WO, 8-bit)
-#define AD7190_REG_STATUS      0x00   // Status          (RO, 8-bit) – same addr, read via COMM
-#define AD7190_REG_MODE        0x01   // Mode            (RW, 24-bit)
-#define AD7190_REG_CONF        0x02   // Configuration   (RW, 24-bit)
-#define AD7190_REG_DATA        0x03   // Data            (RO, 24-bit, or 32-bit with status)
-#define AD7190_REG_ID          0x04   // ID              (RO, 8-bit)
-#define AD7190_REG_GPOCON      0x05   // GPOCON          (RW, 8-bit)
-#define AD7190_REG_OFFSET      0x06   // Offset          (RW, 24-bit)
-#define AD7190_REG_FULLSCALE   0x07   // Full-Scale      (RW, 24-bit)
+#define AD7190_REG_COMM        0x00
+#define AD7190_REG_STATUS      0x00
+#define AD7190_REG_MODE        0x01
+#define AD7190_REG_CONF        0x02
+#define AD7190_REG_DATA        0x03
+#define AD7190_REG_ID          0x04
+#define AD7190_REG_GPOCON      0x05
+#define AD7190_REG_OFFSET      0x06
+#define AD7190_REG_FULLSCALE   0x07
 
 // ─── Communications Register Bits ─────────────────────────────────────────────
-// Byte sent before every transaction to select register + RD/WR
-#define AD7190_COMM_WEN        (0 << 7)   // Write enable (must be 0)
-#define AD7190_COMM_READ       (1 << 6)   // 1 = Read
-#define AD7190_COMM_WRITE      (0 << 6)   // 0 = Write
-#define AD7190_COMM_ADDR(r)    ((r) << 3) // Register address bits [5:3]
-#define AD7190_COMM_CREAD      (1 << 2)   // Continuous read enable
+#define AD7190_COMM_WEN        (0 << 7)
+#define AD7190_COMM_READ       (1 << 6)
+#define AD7190_COMM_WRITE      (0 << 6)
+#define AD7190_COMM_ADDR(r)    ((r) << 3)
+#define AD7190_COMM_CREAD      (1 << 2)
 
 // ─── Mode Register Bit Masks (24-bit) ─────────────────────────────────────────
-// Bits [23:21] – operating mode
-#define AD7190_MODE_CONT       (0x0 << 21)  // Continuous conversion (default)
-#define AD7190_MODE_SINGLE     (0x1 << 21)  // Single conversion
-#define AD7190_MODE_IDLE       (0x2 << 21)  // Idle mode
-#define AD7190_MODE_PWRDN      (0x3 << 21)  // Power-down mode
-#define AD7190_MODE_INTZCAL    (0x4 << 21)  // Internal zero-scale calibration
-#define AD7190_MODE_INTFSCAL   (0x6 << 21)  // Internal full-scale calibration
-
-// Bit 20 – DAT_STA: append status register to data reads
-#define AD7190_MODE_DAT_STA    (1 << 20)
-
-// Bits [19:18] – clock source
-#define AD7190_MODE_CLK_INT_NOTAVAIL (0x2 << 18)  // Internal 4.92 MHz, MCLK2 tristated
-#define AD7190_MODE_CLK_INT_AVAIL    (0x3 << 18)  // Internal 4.92 MHz, available on MCLK2
-#define AD7190_MODE_CLK_EXT          (0x0 << 18)  // External from MCLK1
-
-// Bit 11 – SINC3: 0=SINC4 (default, better 50/60 Hz rejection), 1=SINC3
-#define AD7190_MODE_SINC4      (0 << 11)
-#define AD7190_MODE_SINC3      (1 << 11)
-
-// Bit 10 – REJ60: place additional notch at 60 Hz when ODR=50 Hz
-#define AD7190_MODE_REJ60      (1 << 10)
-
-// Bits [9:0] – FS[9:0]: filter word
-// With CHOP enabled: fADC = fCLK / (1024 × FS × 2)
-// For 50 Hz:  FS = 4915200 / (1024 × 50 × 2) = 48 = 0x030
-#define AD7190_FS_50HZ_CHOP    0x030  // 48 decimal → ~50 Hz with chop enabled
+#define AD7190_MODE_CONT             (0x0 << 21)
+#define AD7190_MODE_SINGLE           (0x1 << 21)
+#define AD7190_MODE_IDLE             (0x2 << 21)
+#define AD7190_MODE_PWRDN            (0x3 << 21)
+#define AD7190_MODE_INTZCAL          (0x4 << 21)
+#define AD7190_MODE_INTFSCAL         (0x6 << 21)
+#define AD7190_MODE_DAT_STA          (1 << 20)
+#define AD7190_MODE_CLK_INT_NOTAVAIL (0x2 << 18)
+#define AD7190_MODE_CLK_INT_AVAIL    (0x3 << 18)
+#define AD7190_MODE_CLK_EXT          (0x0 << 18)
+#define AD7190_MODE_SINC4            (0 << 11)
+#define AD7190_MODE_SINC3            (1 << 11)
+#define AD7190_MODE_REJ60            (1 << 10)
+#define AD7190_FS_50HZ_CHOP          0x030
 
 // ─── Configuration Register Bit Masks (24-bit) ────────────────────────────────
-// Bit 23 – CHOP: enable chopping (eliminates offset, halves ODR)
-#define AD7190_CONF_CHOP       (1 << 23)
-
-// Bit 20 – REFSEL: 0=REFIN1, 1=REFIN2
-#define AD7190_CONF_REFSEL_1   (0 << 20)   // Use REFIN1+/REFIN1-
-#define AD7190_CONF_REFSEL_2   (1 << 20)   // Use REFIN2+/REFIN2-
-
-// Bits [9:8] – channel selection (can OR multiple for sequencer)
-// For manual per-channel reads we set one at a time
-#define AD7190_CONF_CH_AIN1_AIN2   (1 << 8)   // Differential AIN1+/AIN2-
-#define AD7190_CONF_CH_AIN3_AIN4   (1 << 9)   // Differential AIN3+/AIN4-
-
-// Bit 4 – BUF: enable input buffer (required for high-impedance sources)
-#define AD7190_CONF_BUF        (1 << 4)
-
-// Bit 3 – UNIPOLAR: 0=bipolar (default), 1=unipolar
-#define AD7190_CONF_BIPOLAR    (0 << 3)
-#define AD7190_CONF_UNIPOLAR   (1 << 3)
-
-// Bits [2:0] – PGA gain
-#define AD7190_CONF_GAIN_1     0x0
-#define AD7190_CONF_GAIN_8     0x3
-#define AD7190_CONF_GAIN_16    0x4
-#define AD7190_CONF_GAIN_32    0x5
-#define AD7190_CONF_GAIN_64    0x6
-#define AD7190_CONF_GAIN_128   0x7   // Used here
+#define AD7190_CONF_CHOP           (1 << 23)
+#define AD7190_CONF_REFSEL_1       (0 << 20)
+#define AD7190_CONF_REFSEL_2       (1 << 20)
+#define AD7190_CONF_CH_AIN1_AIN2   (1 << 8)
+#define AD7190_CONF_CH_AIN3_AIN4   (1 << 9)
+#define AD7190_CONF_BUF            (1 << 4)
+#define AD7190_CONF_BIPOLAR        (0 << 3)
+#define AD7190_CONF_UNIPOLAR       (1 << 3)
+#define AD7190_CONF_GAIN_1         0x0
+#define AD7190_CONF_GAIN_8         0x3
+#define AD7190_CONF_GAIN_16        0x4
+#define AD7190_CONF_GAIN_32        0x5
+#define AD7190_CONF_GAIN_64        0x6
+#define AD7190_CONF_GAIN_128       0x7
 
 // ─── GPOCON Register Bits (8-bit) ─────────────────────────────────────────────
-// Bit 6 – BPDSW: 1=close bridge power-down switch (BPDSW pin to AGND)
-// This connects load cell excitation ground through the ADC's internal switch
 #define AD7190_GPOCON_BPDSW    (1 << 6)
 #define AD7190_GPOCON_GP32EN   (1 << 5)
 #define AD7190_GPOCON_GP10EN   (1 << 4)
 
 // ─── Status Register Bits (8-bit) ─────────────────────────────────────────────
-#define AD7190_STATUS_RDY      (1 << 7)   // 0=data ready, 1=not ready
+#define AD7190_STATUS_RDY      (1 << 7)
 #define AD7190_STATUS_ERR      (1 << 6)
 #define AD7190_STATUS_NOREF    (1 << 5)
-#define AD7190_STATUS_CHANNEL  0x0F       // Bits [3:0] active channel
+#define AD7190_STATUS_CHANNEL  0x0F
 
 // ─── Expected ID Register Value ───────────────────────────────────────────────
-#define AD7190_ID_VALUE        0x04   // Lower nibble = 0x4 for AD7190
+#define AD7190_ID_VALUE        0x04
 
-// ─── Channel Identifiers (used in API) ────────────────────────────────────────
+// ─── Channel Identifiers ──────────────────────────────────────────────────────
 typedef enum {
-    AD7190_CH_LOADCELL1 = 0,   // AIN1+/AIN2-, REFIN2
-    AD7190_CH_LOADCELL2 = 1    // AIN3+/AIN4-, REFIN1
+    AD7190_CH_LOADCELL1 = 0,
+    AD7190_CH_LOADCELL2 = 1
 } AD7190Channel;
 
 // ─── ADC Instance Identifier ──────────────────────────────────────────────────
 typedef enum {
-    AD7190_ADC1 = 0,   // Weigh System 1, CS=IO5
-    AD7190_ADC2 = 1,   // Weigh System 1, CS=IO1
-    AD7190_ADC3 = 2,   // Weigh System 2, CS=IO3
-    AD7190_ADC4 = 3    // Weigh System 2, CS=IO2
+    AD7190_ADC1 = 0,   // Bus A (FSPI hardware), CS=IO2
+    AD7190_ADC2 = 1,   // Bus A (FSPI hardware), CS=IO3
+    AD7190_ADC3 = 2,   // Bus B (bit-bang),       CS=IO1
+    AD7190_ADC4 = 3    // Bus B (bit-bang),       CS=IO5
 } AD7190Index;
 
 // ─── Measurement Result ───────────────────────────────────────────────────────
 struct AD7190Result {
-    uint32_t raw;          // Raw 24-bit ADC code
-    double   voltage;      // Converted voltage in mV (requires Vref to be set)
-    uint8_t  status;       // Status byte appended to data read
-    bool     valid;        // True if read succeeded and no error flags
+    uint32_t raw;       // Raw 24-bit ADC code
+    double   voltage;   // Tare-corrected bridge output in mV
+    double   kg;        // Converted weight in kg (uses per-channel sensitivity)
+    uint8_t  status;    // Status byte appended to data read
+    bool     valid;     // True if read succeeded with no error flags and zero
+                        // reference is trustworthy. False during post-recovery
+                        // retare deferral — partner channel data should be used.
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BitBangSPI — software SPI Mode 3 (CPOL=1, CPHA=1), MSB first
+//
+// SCLK idles HIGH. MOSI driven before falling edge. MISO sampled on rising.
+// ─────────────────────────────────────────────────────────────────────────────
+class BitBangSPI {
+public:
+    BitBangSPI() : _sck(0), _miso(0), _mosi(0) {}
+
+    void begin(uint8_t sck, uint8_t miso, uint8_t mosi) {
+        _sck  = sck;
+        _miso = miso;
+        _mosi = mosi;
+        pinMode(_sck,  OUTPUT); digitalWrite(_sck,  HIGH);
+        pinMode(_mosi, OUTPUT); digitalWrite(_mosi, LOW);
+        pinMode(_miso, INPUT);
+    }
+
+    uint8_t transfer(uint8_t txByte) {
+        uint8_t rxByte = 0;
+        for (int8_t bit = 7; bit >= 0; bit--) {
+            digitalWrite(_mosi, (txByte >> bit) & 0x01);
+            delayMicroseconds(AD7190_BB_HALF_PERIOD_US);
+            digitalWrite(_sck, LOW);
+            delayMicroseconds(AD7190_BB_HALF_PERIOD_US);
+            digitalWrite(_sck, HIGH);
+            if (digitalRead(_miso)) rxByte |= (1 << bit);
+        }
+        return rxByte;
+    }
+
+private:
+    uint8_t _sck;
+    uint8_t _miso;
+    uint8_t _mosi;
 };
 
 // ─── Main Driver Class ────────────────────────────────────────────────────────
 class AD7190Driver {
 public:
-    /**
-     * Constructor.
-     * @param vrefMv  Reference voltage in millivolts (e.g. 5000 for 5 V).
-     *                Used only for voltage conversion; raw counts always available.
-     */
+
+    void captureTare();
+    bool isTareDone() const { return _tareDone; }
+
     explicit AD7190Driver(float vrefMv = 5000.0f);
 
-    /**
-     * Initialise SPI bus and all 4 ADC chips.
-     * Must be called once in setup().
-     * @return true if all 4 ADCs respond with correct ID.
-     */
     bool begin();
 
-    /**
-     * Perform a single conversion on the selected channel of one ADC.
-     * Blocks until RDY asserts or timeout expires (~200 ms).
-     *
-     * @param adc      Which ADC to read (AD7190_ADC1 … AD7190_ADC4)
-     * @param channel  Which load cell channel (AD7190_CH_LOADCELL1 or 2)
-     * @return         AD7190Result with raw code, millivolt value, and validity flag
-     */
     AD7190Result readChannel(AD7190Index adc, AD7190Channel channel);
+    void         readBothChannels(AD7190Index adc, AD7190Result out[2]);
+    void         readAll(AD7190Result out[8]);
 
-    /**
-     * Read both channels of one ADC sequentially.
-     * @param adc     Which ADC
-     * @param out     Array of 2 results [0]=loadcell1, [1]=loadcell2
-     */
-    void readBothChannels(AD7190Index adc, AD7190Result out[2]);
-
-    /**
-     * Read all 8 channels (2 per ADC × 4 ADCs).
-     * @param out     Array of 8 results, indexed [adc*2 + channel]
-     */
-    void readAll(AD7190Result out[8]);
-
-    /**
-     * Read the ID register of one ADC for diagnostics.
-     * @return ID byte (expect lower nibble == 0x4 for AD7190)
-     */
     uint8_t readID(AD7190Index adc);
+    void    powerDown(AD7190Index adc);
+    void    wakeUp(AD7190Index adc);
+    void    calibrate(AD7190Index adc);
+    void    resetDevice(AD7190Index adc);
 
     /**
-     * Put one ADC into power-down mode (reduces current consumption).
+     * Convert a raw ADC code to kg using per-channel load cell sensitivity.
+     * Channels 0–3 (Bus A): 1 mV/V sensitivity
+     * Channels 4–7 (Bus B): 2 mV/V sensitivity
+     * Rated capacity is set in AD7190_LC_RATED_KG[] in AD7190.cpp.
      */
-    void powerDown(AD7190Index adc);
+    double rawToKg(uint32_t raw, int channel) const;
 
     /**
-     * Wake one ADC from power-down back into continuous conversion idle.
+     * Returns true if this ADC is waiting to retare (scale was loaded at
+     * recovery time). While pending, both channels of this ADC return
+     * valid=false. Call checkDeferredRetare() each loop to poll.
      */
-    void wakeUp(AD7190Index adc);
+    bool isRetarePending(AD7190Index adc) const {
+        return _pendingRetare[(int)adc];
+    }
 
     /**
-     * Trigger internal zero-scale then full-scale self-calibration on one ADC.
-     * Takes ~8× the normal conversion time per calibration step.
-     * Call this once after begin() for best accuracy.
+     * Call once per main loop. For each Bus A ADC with a deferred retare,
+     * reads the partner ADC on the same physical scale. If both partner
+     * channels read below RETARE_LOADED_THRESHOLD_KG, the scale is empty
+     * and retare proceeds. Returns true if any retare was performed.
+     *
+     * Partner mapping (same physical scale platform split across two ADCs):
+     *   ADC1 (ch0,1)  ↔  ADC2 (ch2,3)
      */
-    void calibrate(AD7190Index adc);
-
-    /**
-     * Reset one ADC by sending 40+ high bits on DIN.
-     */
-    void resetDevice(AD7190Index adc);
+    bool checkDeferredRetare();
 
 private:
-    // SPI bus object (FSPI on ESP32-C6)
-    SPIClass  _spi;
+    SPIClass    _spiA;
     SPISettings _spiSettings;
-    float     _vrefMv;
+    BitBangSPI  _spiB;
 
-    // CS pin lookup table
+    float   _vrefMv;
+    int32_t _tare[8]  = {0};
+    bool    _tareDone = false;
+
+    // Per-ADC failure flag — set when recovery fails ID check.
+    bool _adcFailed[AD7190_NUM_ADCS] = {false, false, false, false};
+
+    // Per-channel consecutive midscale (0x800000) read counter.
+    uint8_t _midscaleCount[AD7190_NUM_ADCS * AD7190_CHANNELS_PER_ADC] = {0};
+
+    // ── Deferred retare ─────────────────────────────────────────────────────
+    // Set for a Bus A ADC when recovery fires while the partner half shows
+    // a loaded reading. Retare is deferred until the scale empties.
+    // While pending, readChannel() returns valid=false for both channels.
+    bool _pendingRetare[AD7190_NUM_ADCS] = {false, false, false, false};
+
+    // A scale half is considered loaded if either channel reads above this.
+    // Set to ~10× your noise floor. Adjust if your cells differ.
+    static constexpr double RETARE_LOADED_THRESHOLD_KG = 0.05;
+
     static const uint8_t _csPins[AD7190_NUM_ADCS];
 
-    // ── Low-level register access ───────────────────────────────────────────
+    inline bool isBusBB(AD7190Index adc) const { return (int)adc >= 2; }
+
+    // ── Atomic bus access ───────────────────────────────────────────────────
+    void     busBegin(AD7190Index adc);
+    void     busEnd  (AD7190Index adc);
+    uint8_t  busTransfer(AD7190Index adc, uint8_t out);
+
+    // ── Register access ─────────────────────────────────────────────────────
     void     writeRegister(AD7190Index adc, uint8_t reg, uint32_t value, uint8_t numBytes);
     uint32_t readRegister (AD7190Index adc, uint8_t reg, uint8_t numBytes);
 
-    void     csSelect  (AD7190Index adc);
-    void     csDeselect(AD7190Index adc);
+    void     configureForChannel(AD7190Index adc, AD7190Channel channel);
+    bool     waitForReady(AD7190Index adc, uint32_t timeoutMs = 200);
 
-    // ── Per-channel configuration helpers ──────────────────────────────────
-    /**
-     * Write Mode + Config registers for a single channel measurement.
-     * Starts a single conversion; caller must then poll for RDY.
-     */
-    void configureForChannel(AD7190Index adc, AD7190Channel channel);
-
-    /**
-     * Poll DOUT/RDY (via status register read) until ready or timeout.
-     * @param timeoutMs  Max wait in milliseconds
-     * @return true if data is ready
-     */
-    bool waitForReady(AD7190Index adc, uint32_t timeoutMs = 200);
-
-    // ── Voltage conversion ──────────────────────────────────────────────────
-    double rawToMillivolts(uint32_t raw) const;
-
-    // ── Register value builders ─────────────────────────────────────────────
+    double   rawToMillivolts(uint32_t raw, int channel) const;
     uint32_t buildConfReg(AD7190Channel channel);
 
-    // ── Recover ADC ─────────────────────────────────────────────────────────
-    void recoverADC(AD7190Index adc);
-
+    // Full hardware reset + re-init. Returns true if ADC responds correctly.
+    bool     fullResetADC(AD7190Index adc);
+    // Soft recovery (exit CREAD / stuck state) then fullResetADC.
+    void     recoverADC(AD7190Index adc);
+    // Re-tare only the two channels belonging to one ADC.
+    // For Bus A: only called when scale confirmed empty.
+    // For Bus B: performs offset compensation (scale stays loaded).
+    void     retareChannels(AD7190Index adc);
+    // Returns the kg reading from the partner Bus A ADC (ADC1↔ADC2).
+    // Used to decide whether to retare or defer.
+    double   partnerMaxKg(AD7190Index adc);
+    // Write a register and read it back to verify. Returns false if readback
+    // doesn't match — useful for diagnosing SPI cable integrity issues.
+    bool     writeRegisterVerified(AD7190Index adc, uint8_t reg, uint32_t value,
+                                   uint8_t numBytes);
 };
