@@ -228,7 +228,7 @@ void loop() {
   if (due(tLoadUpload, now)) {
     uint32_t epoch = uploader.epochNow();
     if (uploader.ready() && epoch > 0) {
-      uploader.uploadLoadCellSnapshot("MINUTE_AVG_LC", latestLoad, epoch);
+      uploader.uploadLoadCellSnapshot("MINUTE_AVG", latestLoad, epoch);
     }
   }
 

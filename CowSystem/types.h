@@ -29,4 +29,5 @@ struct LoadCellReading {
   double voltage[8] = {0.0};  // in mV
 
   uint32_t last_ms = 0;       // last update time (millis)
+  float kg[8] = {0};
 };
