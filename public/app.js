@@ -32,7 +32,8 @@ const singleGraphContainer = document.getElementById("singleGraphContainer");
 const multiGraphGrid = document.getElementById("multiGraphGrid");
 
 let cachedData = {};
-let charts = new Array(6).fill(null);
+let singleChart = null;
+let multicharts = new Array(6).fill(null);
 let unsubscribeUser = null; // Holds the active Firebase listener cancellation function
 
 const COLORS = {
@@ -258,13 +259,14 @@ function renderGraphs(labels, temp, hum, meth, co2, feedWeight, cattleWeight, da
         else if (field === "cattle weight") { dataToShow = cattleWeight; colorToShow = COLORS.cattleWeight; labelToShow = "Cattle Weight (kg)"; }
 
         const ctx = document.getElementById("mainChart").getContext("2d");
-        if (charts[0] && charts[0].config.data.datasets[0].label === labelToShow) {
-            charts[0].data.labels = labels;
-            charts[0].data.datasets[0].data = dataToShow;
-            charts[0].update('none'); //skips the animation
+        if (singleChart && singleChart.config.data.datasets[0].label === labelToShow) {
+            singleChart.data.labels = labels;
+            singleChart.data.datasets[0].data = dataToShow;
+            singleChart.update('none');
         } else {
-            if (charts[0]) charts[0].destroy();
-            charts[0] = new Chart(ctx, {
+            if (singleChart) singleChart.destroy();
+
+            singleChart = new Chart(ctx, {
                 type: "line",
                 data: {
                     labels: labels,
@@ -309,13 +311,13 @@ function renderGraphs(labels, temp, hum, meth, co2, feedWeight, cattleWeight, da
         ];
 
         multiConfigs.forEach((cfg, i) => {
-            if (charts[i]) {
-                charts[i].data.labels = labels;
-                charts[i].data.datasets[0].data = cfg.data;
-                charts[i].update('none');
+            if (multicharts[i]) {
+                multicharts[i].data.labels = labels;
+                multicharts[i].data.datasets[0].data = cfg.data;
+                multicharts[i].update('none');
             } else {
                 const ctx = document.getElementById(cfg.id).getContext("2d");
-                charts[i] = new Chart(ctx, {
+                multicharts[i] = new Chart(ctx, {
                     type: "line",
                     data: {
                         labels: labels,
