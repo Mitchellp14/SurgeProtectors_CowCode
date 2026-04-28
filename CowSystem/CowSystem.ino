@@ -22,9 +22,11 @@ static const int I2C_SDA        = 6;
 static const int I2C_SCL        = 7;
 static const float VREF_MV      = 5000.0f;
 
-// --- CS pins ---
-static const int CS_PINS[] = {2, 3, 4, 5, 1};
-static const int NUM_CS     = 5;
+// --- CS pins (must match AD7190.h) ---
+// Bus A (FSPI, SCK=IO15, MOSI=IO22, MISO=IO23): IO2=ADC1, IO3=ADC2
+// Bus B (HSPI, SCK=IO19, MOSI=IO20, MISO=IO21): IO1=ADC3, IO5=ADC4
+static const int CS_PINS[] = {2, 3, 1, 5};
+static const int NUM_CS     = 4;
 
 // --- Modules ---
 RfidTask       rfid;
@@ -41,11 +43,11 @@ static LoadCellReading latestLoad;
 Task tRFID      {0,     0};   // run every loop — RFID must be responsive
 Task tGasF      {0,     0};   // run every loop — INIR UART parsing
 Task tGasS      {1000,  0};   // SCD30 poll ~1Hz
-Task tLoad      {500,  0};   // ADC read ~1Hz, no upload
-Task tLoadUpload{10000, 0};   // load cell upload every 30s
+Task tLoad      {500,  0};   // ADC read ~2Hz, no upload
+Task tLoadUpload{10000, 0};   // load cell upload every 10s
 Task tMgr       {50,    0};   // session state machine
 Task tUpTick    {20,     0};   // Firebase keepalive
-Task tUpload    {2000,  0};   // RFID session upload every 5s
+Task tUpload    {2000,  0};   // RFID session upload every 2s
 Task tSample10s {5000, 0};   // gas accumulator sample
 Task tMinuteChk {1000,  0};   // minute rollover check
 
@@ -130,9 +132,14 @@ void setup() {
   rfid.begin(RFID_RX_PIN, RFID_TX_PIN, RFID_BAUD);
   gas.begin(I2C_SDA, I2C_SCL, INIR_RX_PIN, INIR_TX_PIN);
 
-  Serial.println("\n=== AD7190 Weigh Scale System ===");
+  Serial.println("\n=== AD7190 Weigh Scale System (Dual SPI Bus) ===");
+  Serial.println("  Bus A (FSPI): SCK=IO15  MOSI=IO22  MISO=IO23  CS: IO2(ADC1) IO3(ADC2)");
+  Serial.println("  Bus B (HSPI): SCK=IO19  MOSI=IO20  MISO=IO21  CS: IO1(ADC3) IO5(ADC4)");
+
   if (!adcs.begin()) {
     Serial.println("[ERROR] One or more ADCs failed to initialise. Check wiring.");
+  } else {
+    adcs.captureTare();  // zero scales at startup
   }
 
   manager.begin(20000, 5000);
@@ -154,34 +161,74 @@ void loop() {
     AD7190Result results[8];
     adcs.readAll(results);
 
-    static uint32_t lastRaw[8]    = {0};
-    static uint8_t frozenCount[8] = {0};
+    static uint32_t lastRaw[8] = {0};
+
+    // ── Partner mirroring for split-platform scales (Bus A only) ─────────
+    // ch0+1 and ch2+3 are two halves of the same physical scale.
+    // If one ADC has a pending retare (valid=false), mirror the good half's
+    // kg readings into the invalid half so the upload still reflects total
+    // weight. The mirrored channel is marked valid=false so the database
+    // can distinguish real from estimated data.
+    //
+    // If BOTH halves are invalid, no mirroring — upload both as invalid.
+    bool adc1Pending = adcs.isRetarePending(AD7190_ADC1);
+    bool adc2Pending = adcs.isRetarePending(AD7190_ADC2);
+
+    if (adc1Pending && !adc2Pending) {
+      // ADC1 (ch0,1) recovering — mirror ADC2 (ch2,3) into it
+      Serial.println("[LOAD] ADC1 pending retare — mirroring ch2/3 into ch0/1");
+      results[0].kg = results[2].kg;
+      results[1].kg = results[3].kg;
+      // valid stays false — database knows these are mirrored estimates
+    } else if (adc2Pending && !adc1Pending) {
+      // ADC2 (ch2,3) recovering — mirror ADC1 (ch0,1) into it
+      Serial.println("[LOAD] ADC2 pending retare — mirroring ch0/1 into ch2/3");
+      results[2].kg = results[0].kg;
+      results[3].kg = results[1].kg;
+    }
+    // If both pending: leave both invalid, no mirroring
 
     for (int i = 0; i < 8; i++) {
-      // Frozen channel detection
       if (results[i].valid && results[i].raw == lastRaw[i]) {
-        if (++frozenCount[i] >= 3) {
-          Serial.printf("[WARN] Channel %d frozen at 0x%06lX for %d reads\n",
-                        i, results[i].raw, frozenCount[i]);
-        }
-      } else {
-        frozenCount[i] = 0;
+        Serial.printf("[WARN] Channel %d unchanged at 0x%06lX\n", i, results[i].raw);
       }
       lastRaw[i] = results[i].raw;
 
-      // Cache latest reading
       latestLoad.valid[i]   = results[i].valid;
       latestLoad.raw[i]     = results[i].raw;
       latestLoad.voltage[i] = results[i].voltage;
+      latestLoad.kg[i]      = results[i].kg;
     }
+
+    // Print — show (MIRROR) for invalid channels that have been mirrored
+    Serial.print("[LOAD]");
+    for (int i = 0; i < 8; i++) {
+      if (!results[i].valid) {
+        bool mirrored = (i < 4) &&
+                        ((i < 2 && adc1Pending && !adc2Pending) ||
+                         (i >= 2 && adc2Pending && !adc1Pending));
+        if (mirrored) {
+          Serial.printf(" ch%d=%.3fkg(MIRROR)", i, results[i].kg);
+        } else {
+          Serial.printf(" ch%d=INVALID", i);
+        }
+      } else {
+        Serial.printf(" ch%d=%.3fkg", i, results[i].kg);
+      }
+    }
+    Serial.println();
+
     latestLoad.last_ms = now;
   }
+
+  // --- Check if any deferred retare can now proceed ---
+  adcs.checkDeferredRetare();
 
   // --- Load cell upload (slow, separate from read) ---
   if (due(tLoadUpload, now)) {
     uint32_t epoch = uploader.epochNow();
     if (uploader.ready() && epoch > 0) {
-      uploader.uploadLoadCellSnapshot("MINUTE_AVG_LC", latestLoad, epoch);
+      uploader.uploadLoadCellSnapshot("MINUTE_AVG", latestLoad, epoch);
     }
   }
 
@@ -205,14 +252,14 @@ void loop() {
       if (epoch > 0) {
         //bool wifiOk = (WiFi.status() == WL_CONNECTED);
         if (uploader.uploadGasSnapshot(manager.currentTag(), gr, epoch)) {
-          uploader.uploadLoadCellSnapshot(manager.currentTag(), latestLoad, epoch); //Added by avery 4-7-26 (should upload to same tag+timestamp as gas snapshot)
+          uploader.uploadLoadCellSnapshot(manager.currentTag(), latestLoad, epoch);
         //  display.update(wifiOk, uploader.ready(), manager.currentTag(), gr, epoch);
         }
       }
     }
   }
 
-  // --- Gas accumulator: sample every 10s ---
+  // --- Gas accumulator: sample every 5s ---
   if (due(tSample10s, now)) {
     uint32_t epoch = uploader.epochNow();
     if (epoch > 0) {
@@ -224,5 +271,14 @@ void loop() {
   // --- Minute rollover check every 1s ---
   if (due(tMinuteChk, now)) {
     handleGasAccumulator(uploader.epochNow());
+  }
+
+  // Serial command: 't' or 'T' to retare
+  if (Serial.available()) {
+    char c = Serial.read();
+    if (c == 't' || c == 'T') {
+      Serial.println("Retare requested...");
+      adcs.captureTare();
+    }
   }
 }
