@@ -1,0 +1,185 @@
+#include <Arduino.h>
+#include <SPI.h>
+
+// ---------- Your wiring (edit to match) ----------
+SPIClass spiA(FSPI); // On ESP32-C6 Arduino core, VSPI maps to FSPI
+SPIClass spiB(HSPI);
+
+constexpr int A_SCLK = 19, A_MISO = 21, A_MOSI = 20;
+constexpr int B_SCLK = 19, B_MISO = 23, B_MOSI = 22;
+
+constexpr int CS_A0 = 1;   // Bus A, device 0
+constexpr int CS_A1 = 5;   // Bus A, device 1
+constexpr int CS_B0 = 3;   // Bus B, device 0
+constexpr int CS_B1 = 4;   // Bus B, device 1
+
+// ---------- AD7190 register addresses ----------
+static constexpr uint8_t REG_COMM   = 0; // write-only
+static constexpr uint8_t REG_STATUS = 0; // read-only
+static constexpr uint8_t REG_MODE   = 1; // 24-bit
+static constexpr uint8_t REG_CONFIG = 2; // 24-bit
+static constexpr uint8_t REG_DATA   = 3; // 24-bit
+static constexpr uint8_t REG_ID     = 4; // 8-bit
+
+// COMM byte builder
+static inline uint8_t COMM(uint8_t reg, bool read) {
+  return (uint8_t)((read ? 1 : 0) << 6) | (uint8_t)((reg & 0x07) << 3);
+}
+
+// CONFIG fields (datasheet)
+static constexpr uint32_t CFG_CHOP_EN     = (1u << 23);
+static constexpr uint32_t CFG_REFSEL_REF1 = (0u << 20); // REFIN1
+static constexpr uint32_t CFG_REFSEL_REF2 = (1u << 20); // REFIN2 (P1/P0)
+static constexpr uint32_t CFG_CH0         = (1u << 8);  // AIN1–AIN2
+static constexpr uint32_t CFG_CH1         = (1u << 9);  // AIN3–AIN4
+static constexpr uint32_t CFG_BUF_EN      = (1u << 4);
+static constexpr uint32_t CFG_BIPOLAR     = (0u << 3);
+static inline uint32_t   CFG_GAIN(uint8_t g) { return (uint32_t)(g & 0x7u); }
+
+static constexpr uint8_t GAIN_1=0, GAIN_8=3, GAIN_16=4, GAIN_32=5, GAIN_64=6, GAIN_128=7;
+
+// System parameters (edit)
+static constexpr float    VREF_REFIN1 = 5.000f;
+static constexpr float    VREF_REFIN2 = 5.000f;
+static constexpr uint8_t  GAIN_CODE   = GAIN_128;
+
+static constexpr uint8_t  STAT_RDY    = (1u << 7);
+
+// ---------- Low-level helpers ----------
+static void csLow(int cs)  { digitalWrite(cs, LOW);  }
+static void csHigh(int cs) { digitalWrite(cs, HIGH); }
+
+static uint8_t ad7190_read_u8(SPIClass& spi, int cs, uint8_t regAddr) {
+  spi.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE3));
+  csLow(cs);
+  spi.transfer(COMM(regAddr, true));
+  uint8_t v = spi.transfer(0x00);
+  csHigh(cs);
+  spi.endTransaction();
+  return v;
+}
+
+static uint32_t ad7190_read_u24(SPIClass& spi, int cs, uint8_t regAddr) {
+  spi.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE3));
+  csLow(cs);
+  spi.transfer(COMM(regAddr, true));
+  uint8_t b0 = spi.transfer(0x00);
+  uint8_t b1 = spi.transfer(0x00);
+  uint8_t b2 = spi.transfer(0x00);
+  csHigh(cs);
+  spi.endTransaction();
+  return ((uint32_t)b0 << 16) | ((uint32_t)b1 << 8) | b2;
+}
+
+static void ad7190_write_u24(SPIClass& spi, int cs, uint8_t regAddr, uint32_t val24) {
+  spi.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE3));
+  csLow(cs);
+  spi.transfer(COMM(regAddr, false));
+  spi.transfer((uint8_t)((val24 >> 16) & 0xFF));
+  spi.transfer((uint8_t)((val24 >> 8) & 0xFF));
+  spi.transfer((uint8_t)(val24 & 0xFF));
+  csHigh(cs);
+  spi.endTransaction();
+}
+
+static bool ad7190_wait_rdy(SPIClass& spi, int cs, uint32_t timeout_ms) {
+  uint32_t t0 = millis();
+  while ((millis() - t0) < timeout_ms) {
+    if ((ad7190_read_u8(spi, cs, REG_STATUS) & STAT_RDY) == 0)
+      return true;
+    delayMicroseconds(200);
+  }
+  return false;
+}
+
+static int32_t sign_extend_24(uint32_t x) {
+  return (x & 0x800000) ? (int32_t)(x | 0xFF000000) : (int32_t)x;
+}
+
+static float code_to_volts(int32_t code, float vref, uint8_t gain_code) {
+  const float denom = 8388607.0f; // 2^23 - 1
+  const uint8_t g = (gain_code==0)?1 : (gain_code==3)?8 : (gain_code==4)?16 :
+                    (gain_code==5)?32 : (gain_code==6)?64 : 128;
+  return ((float)code / denom) * (vref / (float)g);
+}
+
+// ---------- Common per-bus routine ----------
+static bool readLoadCell_onBus(
+  SPIClass& spi,
+  int cs_dev0, int cs_dev1, // the two AD7190 CS pins on this bus
+  uint8_t index,            // 0..3 → dev0/CH0, dev0/CH1, dev1/CH0, dev1/CH1
+  int32_t& outCode,
+  float& outVolts
+) {
+  if (index > 3) return false;
+
+  const int cs = (index < 2) ? cs_dev0 : cs_dev1;
+  const bool useCH0 = (index % 2 == 0); // even → CH0 (AIN1–AIN2), odd → CH1 (AIN3–AIN4)
+  const uint32_t chMask = useCH0 ? CFG_CH0 : CFG_CH1;
+  const uint32_t refsel = useCH0 ? CFG_REFSEL_REF2 : CFG_REFSEL_REF1;
+  const float vref      = useCH0 ? VREF_REFIN2 : VREF_REFIN1;
+
+  // Read current CONFIG
+  uint32_t cfg = ad7190_read_u24(spi, cs, REG_CONFIG);
+  // Clear CHOP, REFSEL, CH[15:8]
+  cfg &= ~((1u<<23) | (1u<<20) | (0xFFu<<8));
+  // Apply new CH/REFSEL and enforce CHOP=1
+  cfg |= (CFG_CHOP_EN | refsel | chMask);
+  // (Re-)enforce BUF/BIPOLAR/GAIN baseline
+  cfg &= ~((1u<<4) | (1u<<3) | 0x7u);
+  cfg |= (CFG_BUF_EN | CFG_BIPOLAR | CFG_GAIN(GAIN_CODE));
+
+  ad7190_write_u24(spi, cs, REG_CONFIG, cfg);
+
+  // Settling: wait RDY, discard one, wait RDY, take next
+  if (!ad7190_wait_rdy(spi, cs, 100)) return false;
+  (void)ad7190_read_u24(spi, cs, REG_DATA);   // discard first settled conversion
+  if (!ad7190_wait_rdy(spi, cs, 100)) return false;
+  uint32_t raw = ad7190_read_u24(spi, cs, REG_DATA);
+
+  outCode  = sign_extend_24(raw);
+  outVolts = code_to_volts(outCode, vref, GAIN_CODE);
+  return true;
+}
+
+// ---------- Public per-bus functions ----------
+bool readLoadCell_SPIA(uint8_t index, int32_t& code, float& volts) {
+  return readLoadCell_onBus(spiA, CS_A0, CS_A1, index, code, volts);
+}
+
+bool readLoadCell_SPIB(uint8_t index, int32_t& code, float& volts) {
+  return readLoadCell_onBus(spiB, CS_B0, CS_B1, index, code, volts);
+}
+
+// ---------- Example setup/loop (optional) ----------
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+
+  // Start the two SPI buses on your pins
+  spiA.begin(A_SCLK, A_MISO, A_MOSI, -1);
+  spiB.begin(B_SCLK, B_MISO, B_MOSI, -1);
+
+  // Init CS pins
+  pinMode(CS_A0, OUTPUT); pinMode(CS_A1, OUTPUT);
+  pinMode(CS_B0, OUTPUT); pinMode(CS_B1, OUTPUT);
+  digitalWrite(CS_A0, HIGH); digitalWrite(CS_A1, HIGH);
+  digitalWrite(CS_B0, HIGH); digitalWrite(CS_B1, HIGH);
+}
+
+void loop() {
+  int32_t code; float volts;
+  if (readLoadCell_SPIA(0, code, volts)) {
+    Serial.printf("A[0] code=%ld V=%.6f\n", (long)code, volts);
+  }
+  if (readLoadCell_SPIA(1, code, volts)) {
+    Serial.printf("A[1] code=%ld V=%.6f\n", (long)code, volts);
+  }
+  if (readLoadCell_SPIB(2, code, volts)) {
+    Serial.printf("B[2] code=%ld V=%.6f\n", (long)code, volts);
+  }
+  if (readLoadCell_SPIB(3, code, volts)) {
+    Serial.printf("B[3] code=%ld V=%.6f\n", (long)code, volts);
+  }
+  delay(10);
+}
