@@ -25,8 +25,8 @@
 
 #define Web_API_KEY "AIzaSyCgKeJBId5Ni2kR6hqma8Di08GPwoKtTBk"
 #define DATABASE_URL "https://project-cow-database-default-rtdb.firebaseio.com/"
-#define USER_EMAIL "Avpe9860@colorado.edu"
-#define USER_PASS "Little11Forest12!" //Please do not copy i am trusting you all so much :D
+#define USER_EMAIL "test5943@colorado.edu"
+#define USER_PASS "GlidingPlatypus44*" //Please do not copy i am trusting you all so much :D
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
