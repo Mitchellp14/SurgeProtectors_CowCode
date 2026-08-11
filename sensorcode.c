@@ -16,8 +16,8 @@
 
 #define Web_API_KEY "AIzaSyCgKeJBId5Ni2kR6hqma8Di08GPwoKtTBk"
 #define DATABASE_URL "https://project-cow-database-default-rtdb.firebaseio.com"
-#define USER_EMAIL "thgh9905@colorado.edu"
-#define USER_PASS "1%AW&H9Wr!g!gvQ0m8gX"
+#define USER_EMAIL "test7743@colorado.edu"
+#define USER_PASS "YawningChapels$97"
 
 // --- MQ-4 Parameters ---
 #define MQ4_PIN 1
